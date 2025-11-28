@@ -8,119 +8,28 @@ This module includes Irksome integration.
 """
 
 from abc import ABC, abstractmethod
-from numbers import Number
 from typing import Any, Optional
 
-import firedrake
+import firedrake as fd
 import numpy as np
+from irksome import Dt, MeshConstant, TimeStepper
+from irksome.ButcherTableaux import (
+    Alexander,
+    BackwardEuler,
+    ButcherTableau,
+    GaussLegendre,
+    LobattoIIIA,
+    LobattoIIIC,
+    PareschiRusso,
+    QinZhang,
+    RadauIIA,
+)
 
 from .equations import Equation
 from .utility import ensure_constant
 
-# Irksome imports
-from irksome import (
-    MeshConstant, Dt, TimeStepper as IrksomeTimeStepper,
-    RadauIIA, GaussLegendre, LobattoIIIA, LobattoIIIC,
-    BackwardEuler as IrksomeBackwardEuler, Alexander, QinZhang, PareschiRusso)
-from irksome.ButcherTableaux import ButcherTableau
 
-
-class TimeIntegratorBase(ABC):
-    """Defines the API for all time integrators."""
-
-    @abstractmethod
-    def advance(self, t: float | None = None):
-        """Advances equations for one time step.
-
-        Args:
-          t:
-            Current simulation time
-
-        """
-        pass
-
-    @abstractmethod
-    def initialize(self, init_solution):
-        """Initialises the time integrator.
-
-        Arguments:
-          init_solution: Firedrake function representing the initial solution.
-
-        """
-        pass
-
-
-class TimeIntegrator(TimeIntegratorBase):
-    """Time integrator object that marches a single equation.
-
-    Args:
-      equation: G-ADOPT equation to integrate
-      solution: Firedrake function representing the equation's solution
-      dt: Integration time step
-      solution_old: Firedrake function representing the equation's solution
-                      at the previous timestep
-      solver_parameters: Dictionary of solver parameters provided to PETSc
-      strong_bcs: List of Firedrake Dirichlet boundary conditions
-
-    """
-
-    def __init__(
-        self,
-        equation: Equation,
-        solution: firedrake.Function,
-        dt: float,
-        solution_old: Optional[firedrake.Function] = None,
-        solver_parameters: Optional[dict[str, Any]] = None,
-        strong_bcs: Optional[list[firedrake.DirichletBC]] = None,
-    ):
-        super(TimeIntegrator, self).__init__()
-
-        self.equation = equation
-        self.test = firedrake.TestFunction(solution.function_space())
-        self.solution = solution
-        self.dt_const = ensure_constant(dt)
-        self.solution_old = solution_old or firedrake.Function(solution, name='Old'+solution.name())
-
-        # unique identifier used in solver
-        self.name = '-'.join([self.__class__.__name__,
-                              self.equation.__class__.__name__])
-
-        self.solver_parameters = {}
-        if solver_parameters:
-            self.solver_parameters.update(solver_parameters)
-
-        self.strong_bcs = strong_bcs or []
-        self.hom_bcs = [bci.__class__(bci.function_space(), 0, bci.sub_domain) for bci in self.strong_bcs]
-
-
-class RungeKuttaTimeIntegrator(TimeIntegrator):
-    """Abstract base class for all Runge-Kutta time integrators"""
-
-    @abstractmethod
-    def get_final_solution(self):
-        """Evaluates the final solution"""
-        pass
-
-    @abstractmethod
-    def solve_stage(self, i_stage, t):
-        """Solves a single stage of step from t to t+dt.
-        All functions that the equation depends on must be at right state
-        corresponding to each sub-step.
-
-        """
-        pass
-
-    def advance(self, t: float | None = None) -> None:
-        """Advances equations for one time step."""
-        if not self._initialized:
-            self.initialize(self.solution)
-        for i in range(self.n_stages):
-            self.solve_stage(i, t)
-
-        self.get_final_solution()
-
-
-class IrksomeIntegrator(TimeIntegratorBase):
+class IrksomeIntegrator:
     """Time integrator using Irksome as the backend.
 
     This class wraps Irksome's TimeStepper while maintaining G-ADOPT's API
@@ -188,38 +97,42 @@ class IrksomeIntegrator(TimeIntegratorBase):
     def __init__(
         self,
         equation: Equation,
-        solution: firedrake.Function,
+        solution: fd.Function,
         dt: float,
         butcher: ButcherTableau,
         stage_type: str = "deriv",
-        solution_old: Optional[firedrake.Function] = None,
-        strong_bcs: Optional[list[firedrake.DirichletBC]] = None,
+        solution_old: Optional[fd.Function] = None,
+        strong_bcs: Optional[list[fd.DirichletBC]] = None,
         bc_type: str = "DAE",
         solver_parameters: Optional[dict[str, Any]] = None,
-        initial_time: Number = 0.0,
+        initial_time: float = 0.0,
         adaptive_parameters: Optional[dict[str, Any]] = None,
         **irksome_kwargs,
     ):
         self.equation = equation
         self.solution = solution
-        self.solution_old = solution_old or firedrake.Function(solution, name=solution.name() + " (old)")
+        self.solution_old = solution_old or fd.Function(
+            solution, name=solution.name() + " (old)"
+        )
 
         # Unique identifier used in solver (for API consistency with TimeIntegrator)
-        self.name = '-'.join([self.__class__.__name__, self.equation.__class__.__name__])
+        self.name = "-".join(
+            [self.__class__.__name__, self.equation.__class__.__name__]
+        )
 
         # Keep reference to original dt constant for syncing
         self.dt_reference = ensure_constant(dt)
 
         # Create MeshConstant objects for time variables (what Irksome expects)
         # These are shared with Irksome's TimeStepper (ensures synchronisation)
-        mc = MeshConstant(equation.mesh)
-        self.t = mc.Constant(initial_time)  # Shared time variable with Irksome
-        self.dt_mesh_const = mc.Constant(float(dt))  # MeshConstant for Irksome, synced from dt_reference
+        mesh_constant = MeshConstant(equation.mesh)
+        self.t = mesh_constant.Constant(initial_time)  # Irksome integrator's time
+        self.dt = mesh_constant.Constant(float(dt))  # Irksome integrator's time step
 
         # Build the Irksome form
         F = equation.mass(Dt(solution)) - equation.residual(solution)
 
-        # Store strong_bcs for applying at initialization
+        # Store strong_bcs for applying at initialisation
         # This ensures BC-consistency like the original G-ADOPT DIRKGeneric
         self.strong_bcs = strong_bcs or []
 
@@ -244,21 +157,14 @@ class IrksomeIntegrator(TimeIntegratorBase):
         # This allows users to pass splitting, nullspace, etc.
         stepper_kwargs.update(irksome_kwargs)
 
-        self.stepper = IrksomeTimeStepper(
+        self.stepper = TimeStepper(
             F,
             butcher,
             self.t,  # Shared time variable (MeshConstant)
-            self.dt_mesh_const,  # MeshConstant for Irksome (synced from dt_reference)
+            self.dt,  # MeshConstant for Irksome (synced from dt_reference)
             solution,
-            **stepper_kwargs
+            **stepper_kwargs,
         )
-
-        self._initialized = False
-
-    def initialize(self, init_solution):
-        """Initialise the time integrator."""
-        self.solution.assign(init_solution)
-        self._initialized = True
 
     def advance(self, t: float | None = None) -> tuple[float, float] | None:
         """Advance the solution by one time step.
@@ -287,17 +193,14 @@ class IrksomeIntegrator(TimeIntegratorBase):
                     current_time += dt_used
             This ensures time synchronisation between g-adopt and Irksome's internal state.
 
-            When adaptive timestepping is enabled, Irksome updates dt_mesh_const internally.
-            This method syncs dt_mesh_const back to dt_reference so get_dt() returns the
+            When adaptive timestepping is enabled, Irksome updates dt internally.
+            This method syncs dt back to dt_reference so get_dt() returns the
             actual dt used.
 
             For time-dependent forcings, include time-dependent expressions directly in your
             UFL form using the time variable `t` (e.g., `sin(t)`, `exp(-t)`, etc.), or use
             Firedrake's `ExternalOperator` for complex dependencies.
         """
-        if not self._initialized:
-            self.initialize(self.solution)
-
         # Apply boundary conditions
         for bci in self.strong_bcs:
             bci.apply(self.solution)
@@ -305,9 +208,9 @@ class IrksomeIntegrator(TimeIntegratorBase):
         # Save current solution to solution_old before advancing
         self.solution_old.assign(self.solution)
 
-        # Sync dt_mesh_const with dt_reference before advancing
+        # Sync dt with dt_reference before advancing
         # This ensures Irksome uses the current dt value (in case user updated dt_reference)
-        self.dt_mesh_const.assign(self.dt_reference)
+        self.dt.assign(self.dt_reference)
 
         # Update internal time if provided by user
         # This ensures Irksome uses the correct time during this advance() call
@@ -324,8 +227,8 @@ class IrksomeIntegrator(TimeIntegratorBase):
             # Irksome returns (error, dt_used) tuple when adaptive is enabled
             adapt_error, adapt_dt = result
 
-            # Sync dt_mesh_const back to dt_reference
-            # (Irksome updated dt_mesh_const internally during advance)
+            # Sync dt back to dt_reference
+            # (Irksome updated dt internally during advance)
             self.dt_reference.assign(float(adapt_dt))
 
             # Return tuple so users can track the actual dt used
@@ -344,7 +247,7 @@ class IrksomeIntegrator(TimeIntegratorBase):
         return self.t
 
     @property
-    def dt(self) -> float:
+    def time_step(self) -> float:
         """Get the current value of the time step from dt_reference.
 
         Returns:
@@ -371,7 +274,7 @@ def create_custom_tableau(a, b, c):
         c=np.array(c),
         order=len(b),  # Estimate order from number of stages
         embedded_order=None,
-        gamma0=None
+        gamma0=None,
     )
 
 
@@ -388,11 +291,11 @@ class RKGeneric(IrksomeIntegrator):
     def __init__(
         self,
         equation: Equation,
-        solution: firedrake.Function,
+        solution: fd.Function,
         dt: float,
-        solution_old: Optional[firedrake.Function] = None,
+        solution_old: Optional[fd.Function] = None,
         solver_parameters: Optional[dict[str, Any]] = {},
-        strong_bcs: Optional[list[firedrake.DirichletBC]] = None,
+        strong_bcs: Optional[list[fd.DirichletBC]] = None,
         **kwargs,
     ):
         # Create Butcher tableau from instance attributes (inherited from Abstract class)
@@ -408,17 +311,19 @@ class RKGeneric(IrksomeIntegrator):
             solution_old=solution_old,
             strong_bcs=strong_bcs,
             solver_parameters=solver_parameters,
-            **kwargs
+            **kwargs,
         )
 
 
 class ERKGeneric(RKGeneric):
     """Generic explicit Runge-Kutta time integrator using Irksome."""
+
     stage_type = "explicit"
 
 
 class DIRKGeneric(RKGeneric):
     """Generic diagonally implicit Runge-Kutta time integrator using Irksome."""
+
     stage_type = "dirk"
 
 
@@ -427,7 +332,7 @@ class StaticButcherTableauIntegrator(IrksomeIntegrator):
 
     This base class is for schemes that have direct Irksome equivalents.
     Subclasses should set:
-    - butcher_tableau: An Irksome ButcherTableau instance (e.g., IrksomeBackwardEuler())
+    - butcher_tableau: An Irksome ButcherTableau instance (e.g., BackwardEuler())
     - stage_type: The stage formulation type (e.g., "dirk")
     """
 
@@ -437,11 +342,11 @@ class StaticButcherTableauIntegrator(IrksomeIntegrator):
     def __init__(
         self,
         equation: Equation,
-        solution: firedrake.Function,
+        solution: fd.Function,
         dt: float,
-        solution_old: Optional[firedrake.Function] = None,
+        solution_old: Optional[fd.Function] = None,
         solver_parameters: Optional[dict[str, Any]] = {},
-        strong_bcs: Optional[list[firedrake.DirichletBC]] = None,
+        strong_bcs: Optional[list[fd.DirichletBC]] = None,
         **kwargs,
     ):
         if self.butcher_tableau is None:
@@ -459,7 +364,7 @@ class StaticButcherTableauIntegrator(IrksomeIntegrator):
             solution_old=solution_old,
             strong_bcs=strong_bcs,
             solver_parameters=solver_parameters,
-            **kwargs
+            **kwargs,
         )
 
 
@@ -475,23 +380,43 @@ class AbstractRKScheme(ABC):
     Currently only explicit or diagonally implicit schemes are supported.
     """
 
+    def __init__(self):
+        super(AbstractRKScheme, self).__init__()
+        self.a = np.array(self.a)
+        self.b = np.array(self.b)
+        self.c = np.array(self.c)
+
+        np.testing.assert_array_equal(
+            np.triu(self.a, 1),
+            np.zeros_like(self.a),
+            err_msg="Butcher tableau must be lower diagonal",
+        )
+        np.testing.assert_allclose(
+            np.sum(self.a, axis=1),
+            self.c,
+            err_msg="Inconsistent Butcher tableau: Row sum of a is not c",
+        )
+
+        self.n_stages = len(self.b)
+        self.butcher = np.vstack((self.a, self.b))
+
+        self.is_implicit = np.diag(self.a).any()
+        self.is_dirk = np.diag(self.a).all()
+
     @property
     @abstractmethod
     def a(self):
         """Runge-Kutta matrix :math:`a_{i,j}` of the Butcher tableau"""
-        pass
 
     @property
     @abstractmethod
     def b(self):
         """weights :math:`b_{i}` of the Butcher tableau"""
-        pass
 
     @property
     @abstractmethod
     def c(self):
         """nodes :math:`c_{i}` of the Butcher tableau"""
-        pass
 
     @property
     @abstractmethod
@@ -501,22 +426,6 @@ class AbstractRKScheme(ABC):
         Value 1.0 corresponds to Forward Euler time step.
 
         """
-        pass
-
-    def __init__(self):
-        super(AbstractRKScheme, self).__init__()
-        self.a = np.array(self.a)
-        self.b = np.array(self.b)
-        self.c = np.array(self.c)
-
-        assert not np.triu(self.a, 1).any(), 'Butcher tableau must be lower diagonal'
-        assert np.allclose(np.sum(self.a, axis=1), self.c), 'Inconsistent Butcher tableau: Row sum of a is not c'
-
-        self.n_stages = len(self.b)
-        self.butcher = np.vstack((self.a, self.b))
-
-        self.is_implicit = np.diag(self.a).any()
-        self.is_dirk = np.diag(self.a).all()
 
 
 def shu_osher_butcher(alpha_or_lambda, beta_or_mu):
@@ -538,17 +447,18 @@ def shu_osher_butcher(alpha_or_lambda, beta_or_mu):
     return A, b, c
 
 
-class ForwardEulerAbstract(AbstractRKScheme):
+class ERKEuler(ERKGeneric, AbstractRKScheme):
     """
     Forward Euler method
     """
+
     a = [[0]]
     b = [1.0]
     c = [0]
     cfl_coeff = 1.0
 
 
-class ERKLSPUM2Abstract(AbstractRKScheme):
+class ERKLSPUM2(ERKGeneric, AbstractRKScheme):
     """
     ERKLSPUM2, 3-stage, 2nd order Explicit Runge Kutta method
 
@@ -558,15 +468,14 @@ class ERKLSPUM2Abstract(AbstractRKScheme):
     Runge-Kutta methods. Journal of Computational and Applied Mathematics
     272(2014) 116-140. http://dx.doi.org/10.1016/j.cam.2014.05.011
     """
-    a = [[0, 0, 0],
-         [5.0/6.0, 0, 0],
-         [11.0/24.0, 11.0/24.0, 0]]
-    b = [24.0/55.0, 1.0/5.0, 4.0/11.0]
-    c = [0, 5.0/6.0, 11.0/12.0]
+
+    a = [[0, 0, 0], [5.0 / 6.0, 0, 0], [11.0 / 24.0, 11.0 / 24.0, 0]]
+    b = [24.0 / 55.0, 1.0 / 5.0, 4.0 / 11.0]
+    c = [0, 5.0 / 6.0, 11.0 / 12.0]
     cfl_coeff = 1.2
 
 
-class ERKLPUM2Abstract(AbstractRKScheme):
+class ERKLPUM2(ERKGeneric, AbstractRKScheme):
     """
     ERKLPUM2, 3-stage, 2nd order
     Explicit Runge Kutta method
@@ -577,23 +486,21 @@ class ERKLPUM2Abstract(AbstractRKScheme):
     Runge-Kutta methods. Journal of Computational and Applied Mathematics
     272(2014) 116-140. http://dx.doi.org/10.1016/j.cam.2014.05.011
     """
-    a = [[0, 0, 0],
-         [1.0/2.0, 0, 0],
-         [1.0/2.0, 1.0/2.0, 0]]
-    b = [1.0/3.0, 1.0/3.0, 1.0/3.0]
-    c = [0, 1.0/2.0, 1.0]
+
+    a = [[0, 0, 0], [1.0 / 2.0, 0, 0], [1.0 / 2.0, 1.0 / 2.0, 0]]
+    b = [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]
+    c = [0, 1.0 / 2.0, 1.0]
     cfl_coeff = 2.0
 
 
-class ERKMidpointAbstract(AbstractRKScheme):
-    a = [[0.0, 0.0],
-         [0.5, 0.0]]
+class ERKMidpoint(ERKGeneric, AbstractRKScheme):
+    a = [[0.0, 0.0], [0.5, 0.0]]
     b = [0.0, 1.0]
     c = [0.0, 0.5]
     cfl_coeff = 1.0
 
 
-class SSPRK33Abstract(AbstractRKScheme):
+class SSPRK33(ERKGeneric, AbstractRKScheme):
     r"""
     3rd order Strong Stability Preserving Runge-Kutta scheme, SSP(3,3).
 
@@ -609,85 +516,89 @@ class SSPRK33Abstract(AbstractRKScheme):
 
     CFL coefficient is 1.0
     """
-    a = [[0, 0, 0],
-         [1.0, 0, 0],
-         [0.25, 0.25, 0]]
-    b = [1.0/6.0, 1.0/6.0, 2.0/3.0]
+
+    a = [[0, 0, 0], [1.0, 0, 0], [0.25, 0.25, 0]]
+    b = [1.0 / 6.0, 1.0 / 6.0, 2.0 / 3.0]
     c = [0, 1.0, 0.5]
     cfl_coeff = 1.0
 
 
-class eSSPRKs3p3Abstract(AbstractRKScheme):
+def a_eSSPRK(non_zero_entries):
+    for row in non_zero_entries:
+        row += [0.0] * (len(non_zero_entries) - len(row))
+
+
+class eSSPRKs3p3(ERKGeneric, AbstractRKScheme):
     """Explicit SSP Runge-Kutta method with nondecreasing abscissas.
     See Isherwood, Grant, and Gottlieb (2018)."""
 
-    a = [[0.0, 0.0, 0.0], [2 / 3, 0.0, 0.0], [2 / 9, 4 / 9, 0.0]]
+    a = [[], [2 / 3], [2 / 9, 4 / 9]]
+    a_eSSPRK(a)
     b = [0.25, 0.1875, 0.5625]
     c = [0, 2 / 3, 2 / 3]
     cfl_coeff = 3 / 4
 
 
-class eSSPRKs4p3Abstract(AbstractRKScheme):
+class eSSPRKs4p3(ERKGeneric, AbstractRKScheme):
     """Explicit SSP Runge-Kutta method with nondecreasing abscissas.
     See Isherwood, Grant, and Gottlieb (2018)."""
 
-    a = [
-        [0.0, 0.0, 0.0, 0.0],
-        [11 / 20, 0.0, 0.0, 0.0],
-        [11 / 32, 11 / 32, 0.0, 0.0],
-        [55 / 288, 55 / 288, 11 / 36, 0.0],
-    ]
+    a = [[], [11 / 20], [11 / 32, 11 / 32], [55 / 288, 55 / 288, 11 / 36]]
+    a_eSSPRK(a)
     b = [0.24517906, 0.13774105, 0.22038567, 0.39669421]
     c = [0, 11 / 20, 11 / 16, 11 / 16]
     cfl_coeff = 20 / 11
 
 
-class eSSPRKs5p3Abstract(AbstractRKScheme):
+class eSSPRKs5p3(ERKGeneric, AbstractRKScheme):
     """Explicit SSP Runge-Kutta method with nondecreasing abscissas.
     See Isherwood, Grant, and Gottlieb (2018)."""
 
     a = [
-        [0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.37949799, 0.0, 0.0, 0.0, 0.0],
-        [0.35866028, 0.35866028, 0.0, 0.0, 0.0],
-        [0.23456423, 0.23456423, 0.24819211, 0.0, 0.0],
-        [0.15340527, 0.15340527, 0.16231792, 0.24819211, 0.0],
+        [],
+        [0.37949799],
+        [0.35866028, 0.35866028],
+        [0.23456423, 0.23456423, 0.24819211],
+        [0.15340527, 0.15340527, 0.16231792, 0.24819211],
     ]
+    a_eSSPRK(a)
     b = [0.20992362, 0.1975535, 0.1217419, 0.18614938, 0.28463159]
     c = [0.0, 0.37949799, 0.71732056, 0.71732057, 0.71732057]
     cfl_coeff = 2.63506005
 
 
-class eSSPRKs6p3Abstract(AbstractRKScheme):
+class eSSPRKs6p3(ERKGeneric, AbstractRKScheme):
     """Explicit SSP Runge-Kutta method with nondecreasing abscissas.
     See Isherwood, Grant, and Gottlieb (2018)."""
 
     a = [
-        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.28422072, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.28422072, 0.28422072, 0.0, 0.0, 0.0, 0.0],
-        [0.23301578, 0.23301578, 0.23301578, 0.0, 0.0, 0.0],
-        [0.16684082, 0.16532461, 0.16532461, 0.20165449, 0.0, 0.0],
-        [0.21178186, 0.102324, 0.10202706, 0.12444738, 0.17540162, 0.0],
+        [],
+        [0.28422072],
+        [0.28422072, 0.28422072],
+        [0.23301578, 0.23301578, 0.23301578],
+        [0.16684082, 0.16532461, 0.16532461, 0.20165449],
+        [0.21178186, 0.102324, 0.10202706, 0.12444738, 0.17540162],
     ]
+    a_eSSPRK(a)
     b = [0.21181784, 0.10241434, 0.10198818, 0.12438557, 0.17531451, 0.28407956]
     c = [0.0, 0.28422072, 0.56844144, 0.69904734, 0.69914453, 0.71598192]
     cfl_coeff = 3.51839231
 
 
-class eSSPRKs7p3Abstract(AbstractRKScheme):
+class eSSPRKs7p3(ERKGeneric, AbstractRKScheme):
     """Explicit SSP Runge-Kutta method with nondecreasing abscissas.
     See Isherwood, Grant, and Gottlieb (2018)."""
 
     a = [
-        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.23333473, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.23333473, 0.23333473, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.23144338, 0.23144338, 0.23144338, 0.0, 0.0, 0.0, 0.0],
-        [0.17322863, 0.17322863, 0.17322863, 0.17464425, 0.0, 0.0, 0.0],
-        [0.13071968, 0.12941249, 0.12941249, 0.13047004, 0.17431545, 0.0, 0.0],
-        [0.16655731, 0.16570664, 0.08421603, 0.08490424, 0.11343693, 0.15184412, 0.0],
+        [],
+        [0.23333473],
+        [0.23333473, 0.23333473],
+        [0.23144338, 0.23144338, 0.23144338],
+        [0.17322863, 0.17322863, 0.17322863, 0.17464425],
+        [0.13071968, 0.12941249, 0.12941249, 0.13047004, 0.17431545],
+        [0.16655731, 0.16570664, 0.08421603, 0.08490424, 0.11343693, 0.15184412],
     ]
+    a_eSSPRK(a)
     b = [
         0.16655731,
         0.16570664,
@@ -701,27 +612,18 @@ class eSSPRKs7p3Abstract(AbstractRKScheme):
     cfl_coeff = 4.28568865
 
 
-class eSSPRKs8p3Abstract(AbstractRKScheme):
+class eSSPRKs8p3(ERKGeneric, AbstractRKScheme):
     """Explicit SSP Runge-Kutta method with nondecreasing abscissas.
     See Isherwood, Grant, and Gottlieb (2018)."""
 
     a = [
-        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.19580402, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.19580402, 0.19580402, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.19580402, 0.19580402, 0.19580402, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.15369244, 0.15369244, 0.15369244, 0.15369244, 0.0, 0.0, 0.0, 0.0],
-        [0.11656615, 0.11656615, 0.11656615, 0.11656615, 0.14850516, 0.0, 0.0, 0.0],
-        [
-            0.12960593,
-            0.09738344,
-            0.09738344,
-            0.09738344,
-            0.12406641,
-            0.16358153,
-            0.0,
-            0.0,
-        ],
+        [],
+        [0.19580402],
+        [0.19580402, 0.19580402],
+        [0.19580402, 0.19580402, 0.19580402],
+        [0.15369244, 0.15369244, 0.15369244, 0.15369244],
+        [0.11656615, 0.11656615, 0.11656615, 0.11656615, 0.14850516],
+        [0.12960593, 0.09738344, 0.09738344, 0.09738344, 0.12406641, 0.16358153],
         [
             0.12970594,
             0.09753214,
@@ -730,9 +632,9 @@ class eSSPRKs8p3Abstract(AbstractRKScheme):
             0.12387897,
             0.16333439,
             0.1955082,
-            0.0,
         ],
     ]
+    a_eSSPRK(a)
     b = [
         0.1462899,
         0.12218849,
@@ -756,39 +658,19 @@ class eSSPRKs8p3Abstract(AbstractRKScheme):
     cfl_coeff = 5.10714756
 
 
-class eSSPRKs9p3Abstract(AbstractRKScheme):
+class eSSPRKs9p3(ERKGeneric, AbstractRKScheme):
     """Explicit SSP Runge-Kutta method with nondecreasing abscissas.
     See Isherwood, Grant, and Gottlieb (2018)."""
 
     a = [
-        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.16666667, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.16666667, 0.16666667, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.16666667, 0.16666667, 0.16666667, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.16666667, 0.16666667, 0.16666667, 0.16666667, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [
-            0.13333333,
-            0.13333333,
-            0.13333333,
-            0.13333333,
-            0.13333333,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        ],
-        [0.14166667, 0.1, 0.1, 0.1, 0.1, 0.125, 0.0, 0.0, 0.0],
-        [
-            0.15,
-            0.12222222,
-            0.06666667,
-            0.06666667,
-            0.06666667,
-            0.08333333,
-            0.11111111,
-            0.0,
-            0.0,
-        ],
+        [],
+        [0.16666667],
+        [0.16666667, 0.16666667],
+        [0.16666667, 0.16666667, 0.16666667],
+        [0.16666667, 0.16666667, 0.16666667, 0.16666667],
+        [0.13333333, 0.13333333, 0.13333333, 0.13333333, 0.13333333],
+        [0.14166667, 0.1, 0.1, 0.1, 0.1, 0.125],
+        [0.15, 0.12222222, 0.06666667, 0.06666667, 0.06666667, 0.08333333, 0.11111111],
         [
             0.15,
             0.12222222,
@@ -798,9 +680,9 @@ class eSSPRKs9p3Abstract(AbstractRKScheme):
             0.08333333,
             0.11111111,
             0.16666667,
-            0.0,
         ],
     ]
+    a_eSSPRK(a)
     b = [
         0.15,
         0.12222222,
@@ -826,40 +708,18 @@ class eSSPRKs9p3Abstract(AbstractRKScheme):
     cfl_coeff = 6.0
 
 
-class eSSPRKs10p3Abstract(AbstractRKScheme):
+class eSSPRKs10p3(ERKGeneric, AbstractRKScheme):
     """Explicit SSP Runge-Kutta method with nondecreasing abscissas.
     See Isherwood, Grant, and Gottlieb (2018)."""
 
     a = [
-        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.14737756, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.14737756, 0.14737756, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.14737756, 0.14737756, 0.14737756, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.14737756, 0.14737756, 0.14737756, 0.14737756, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [
-            0.11790205,
-            0.11790205,
-            0.11790205,
-            0.11790205,
-            0.11790205,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        ],
-        [
-            0.10906732,
-            0.10906703,
-            0.10906703,
-            0.10906703,
-            0.10906703,
-            0.13633378,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        ],
+        [],
+        [0.14737756],
+        [0.14737756, 0.14737756],
+        [0.14737756, 0.14737756, 0.14737756],
+        [0.14737756, 0.14737756, 0.14737756, 0.14737756],
+        [0.11790205, 0.11790205, 0.11790205, 0.11790205, 0.11790205],
+        [0.10906732, 0.10906703, 0.10906703, 0.10906703, 0.10906703, 0.13633378],
         [
             0.11862231,
             0.11856848,
@@ -868,9 +728,6 @@ class eSSPRKs10p3Abstract(AbstractRKScheme):
             0.08186453,
             0.10233067,
             0.11062,
-            0.0,
-            0.0,
-            0.0,
         ],
         [
             0.12708168,
@@ -881,8 +738,6 @@ class eSSPRKs10p3Abstract(AbstractRKScheme):
             0.07222649,
             0.07807723,
             0.10402125,
-            0.0,
-            0.0,
         ],
         [
             0.1270886,
@@ -894,9 +749,9 @@ class eSSPRKs10p3Abstract(AbstractRKScheme):
             0.07805061,
             0.10398578,
             0.1473273,
-            0.0,
         ],
     ]
+    a_eSSPRK(a)
     b = [
         0.1270886,
         0.12705062,
@@ -924,47 +779,36 @@ class eSSPRKs10p3Abstract(AbstractRKScheme):
     cfl_coeff = 6.78529356
 
 
-class BackwardEulerAbstract(AbstractRKScheme):
-    """
-    Backward Euler method
-    """
-    a = [[1.0]]
-    b = [1.0]
-    c = [1.0]
+class BackwardEuler(StaticButcherTableauIntegrator):
+    """Backward Euler scheme using Irksome's built-in implementation."""
+
+    butcher_tableau = BackwardEuler()
+    stage_type = "dirk"
+
     cfl_coeff = CFL_UNCONDITIONALLY_STABLE
 
 
-class ImplicitMidpointAbstract(AbstractRKScheme):
-    r"""
-    Implicit midpoint method, second order.
+class ImplicitMidpoint(StaticButcherTableauIntegrator):
+    """Implicit midpoint scheme using Irksome's GaussLegendre(1) implementation."""
 
-    This method has the Butcher tableau
+    butcher_tableau = GaussLegendre(1)
+    stage_type = "dirk"
 
-    .. math::
-        \begin{array}{c|c}
-        0.5 & 0.5 \\ \hline
-            & 1.0
-        \end{array}
-
-    """
-    a = [[0.5]]
-    b = [1.0]
-    c = [0.5]
     cfl_coeff = CFL_UNCONDITIONALLY_STABLE
 
 
-class CrankNicolsonAbstract(AbstractRKScheme):
+class CrankNicolsonRK(DIRKGeneric, AbstractRKScheme):
     """
     Crank-Nicolson scheme
     """
-    a = [[0.0, 0.0],
-         [0.5, 0.5]]
+
+    a = [[0.0, 0.0], [0.5, 0.5]]
     b = [0.5, 0.5]
     c = [0.0, 1.0]
     cfl_coeff = CFL_UNCONDITIONALLY_STABLE
 
 
-class DIRK22Abstract(AbstractRKScheme):
+class DIRK22(DIRKGeneric, AbstractRKScheme):
     r"""
     2-stage, 2nd order, L-stable Diagonally Implicit Runge Kutta method
 
@@ -985,15 +829,15 @@ class DIRK22Abstract(AbstractRKScheme):
     time-dependent partial differential equations. Applied Numerical
     Mathematics, 25:151-167. http://dx.doi.org/10.1137/0732037
     """
-    gamma = (2.0 + np.sqrt(2.0))/2.0
-    a = [[gamma, 0],
-         [1-gamma, gamma]]
-    b = [1-gamma, gamma]
+
+    gamma = (2.0 + np.sqrt(2.0)) / 2.0
+    a = [[gamma, 0], [1 - gamma, gamma]]
+    b = [1 - gamma, gamma]
     c = [gamma, 1]
     cfl_coeff = CFL_UNCONDITIONALLY_STABLE
 
 
-class DIRK23Abstract(AbstractRKScheme):
+class DIRK23(DIRKGeneric, AbstractRKScheme):
     r"""
     2-stage, 3rd order Diagonally Implicit Runge Kutta method
 
@@ -1014,15 +858,15 @@ class DIRK23Abstract(AbstractRKScheme):
     time-dependent partial differential equations. Applied Numerical
     Mathematics, 25:151-167. http://dx.doi.org/10.1137/0732037
     """
-    gamma = (3 + np.sqrt(3))/6
-    a = [[gamma, 0],
-         [1-2*gamma, gamma]]
+
+    gamma = (3 + np.sqrt(3)) / 6
+    a = [[gamma, 0], [1 - 2 * gamma, gamma]]
     b = [0.5, 0.5]
-    c = [gamma, 1-gamma]
+    c = [gamma, 1 - gamma]
     cfl_coeff = CFL_UNCONDITIONALLY_STABLE
 
 
-class DIRK33Abstract(AbstractRKScheme):
+class DIRK33(DIRKGeneric, AbstractRKScheme):
     """
     3-stage, 3rd order, L-stable Diagonally Implicit Runge Kutta method
 
@@ -1032,18 +876,17 @@ class DIRK33Abstract(AbstractRKScheme):
     time-dependent partial differential equations. Applied Numerical
     Mathematics, 25:151-167. http://dx.doi.org/10.1137/0732037
     """
+
     gamma = 0.4358665215
-    b1 = -3.0/2.0*gamma**2 + 4*gamma - 1.0/4.0
-    b2 = 3.0/2.0*gamma**2 - 5*gamma + 5.0/4.0
-    a = [[gamma, 0, 0],
-         [(1-gamma)/2, gamma, 0],
-         [b1, b2, gamma]]
+    b1 = -3.0 / 2.0 * gamma**2 + 4 * gamma - 1.0 / 4.0
+    b2 = 3.0 / 2.0 * gamma**2 - 5 * gamma + 5.0 / 4.0
+    a = [[gamma, 0, 0], [(1 - gamma) / 2, gamma, 0], [b1, b2, gamma]]
     b = [b1, b2, gamma]
-    c = [gamma, (1+gamma)/2, 1]
+    c = [gamma, (1 + gamma) / 2, 1]
     cfl_coeff = CFL_UNCONDITIONALLY_STABLE
 
 
-class DIRK43Abstract(AbstractRKScheme):
+class DIRK43(DIRKGeneric, AbstractRKScheme):
     """
     4-stage, 3rd order, L-stable Diagonally Implicit Runge Kutta method
 
@@ -1053,16 +896,19 @@ class DIRK43Abstract(AbstractRKScheme):
     time-dependent partial differential equations. Applied Numerical
     Mathematics, 25:151-167. http://dx.doi.org/10.1137/0732037
     """
-    a = [[0.5, 0, 0, 0],
-         [1.0/6.0, 0.5, 0, 0],
-         [-0.5, 0.5, 0.5, 0],
-         [3.0/2.0, -3.0/2.0, 0.5, 0.5]]
-    b = [3.0/2.0, -3.0/2.0, 0.5, 0.5]
-    c = [0.5, 2.0/3.0, 0.5, 1.0]
+
+    a = [
+        [0.5, 0, 0, 0],
+        [1.0 / 6.0, 0.5, 0, 0],
+        [-0.5, 0.5, 0.5, 0],
+        [3.0 / 2.0, -3.0 / 2.0, 0.5, 0.5],
+    ]
+    b = [3.0 / 2.0, -3.0 / 2.0, 0.5, 0.5]
+    c = [0.5, 2.0 / 3.0, 0.5, 1.0]
     cfl_coeff = CFL_UNCONDITIONALLY_STABLE
 
 
-class DIRKLSPUM2Abstract(AbstractRKScheme):
+class DIRKLSPUM2(DIRKGeneric, AbstractRKScheme):
     """
     DIRKLSPUM2, 3-stage, 2nd order, L-stable Diagonally Implicit Runge Kutta method
 
@@ -1072,15 +918,18 @@ class DIRKLSPUM2Abstract(AbstractRKScheme):
     Runge-Kutta methods. Journal of Computational and Applied Mathematics
     272(2014) 116-140. http://dx.doi.org/10.1016/j.cam.2014.05.011
     """
-    a = [[2.0/11.0, 0, 0],
-         [205.0/462.0, 2.0/11.0, 0],
-         [2033.0/4620.0, 21.0/110.0, 2.0/11.0]]
-    b = [24.0/55.0, 1.0/5.0, 4.0/11.0]
-    c = [2.0/11.0, 289.0/462.0, 751.0/924.0]
+
+    a = [
+        [2.0 / 11.0, 0, 0],
+        [205.0 / 462.0, 2.0 / 11.0, 0],
+        [2033.0 / 4620.0, 21.0 / 110.0, 2.0 / 11.0],
+    ]
+    b = [24.0 / 55.0, 1.0 / 5.0, 4.0 / 11.0]
+    c = [2.0 / 11.0, 289.0 / 462.0, 751.0 / 924.0]
     cfl_coeff = 4.34  # NOTE for linear problems, nonlin => 3.82
 
 
-class DIRKLPUM2Abstract(AbstractRKScheme):
+class DIRKLPUM2(DIRKGeneric, AbstractRKScheme):
     """
     DIRKLPUM2, 3-stage, 2nd order, L-stable Diagonally Implicit Runge Kutta method
 
@@ -1090,104 +939,15 @@ class DIRKLPUM2Abstract(AbstractRKScheme):
     Runge-Kutta methods. Journal of Computational and Applied Mathematics
     272(2014) 116-140. http://dx.doi.org/10.1016/j.cam.2014.05.011
     """
-    a = [[2.0/11.0, 0, 0],
-         [41.0/154.0, 2.0/11.0, 0],
-         [289.0/847.0, 42.0/121.0, 2.0/11.0]]
-    b = [1.0/3.0, 1.0/3.0, 1.0/3.0]
-    c = [2.0/11.0, 69.0/154.0, 67.0/77.0]
+
+    a = [
+        [2.0 / 11.0, 0, 0],
+        [41.0 / 154.0, 2.0 / 11.0, 0],
+        [289.0 / 847.0, 42.0 / 121.0, 2.0 / 11.0],
+    ]
+    b = [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]
+    c = [2.0 / 11.0, 69.0 / 154.0, 67.0 / 77.0]
     cfl_coeff = 4.34  # NOTE for linear problems, nonlin => 3.09
-
-
-class ERKLSPUM2(ERKGeneric, ERKLSPUM2Abstract):
-    pass
-
-
-class ERKLPUM2(ERKGeneric, ERKLPUM2Abstract):
-    pass
-
-
-class ERKMidpoint(ERKGeneric, ERKMidpointAbstract):
-    pass
-
-
-class ERKEuler(ERKGeneric, ForwardEulerAbstract):
-    pass
-
-
-class SSPRK33(ERKGeneric, SSPRK33Abstract):
-    pass
-
-
-class eSSPRKs3p3(ERKGeneric, eSSPRKs3p3Abstract):
-    pass
-
-
-class eSSPRKs4p3(ERKGeneric, eSSPRKs4p3Abstract):
-    pass
-
-
-class eSSPRKs5p3(ERKGeneric, eSSPRKs5p3Abstract):
-    pass
-
-
-class eSSPRKs6p3(ERKGeneric, eSSPRKs6p3Abstract):
-    pass
-
-
-class eSSPRKs7p3(ERKGeneric, eSSPRKs7p3Abstract):
-    pass
-
-
-class eSSPRKs8p3(ERKGeneric, eSSPRKs8p3Abstract):
-    pass
-
-
-class eSSPRKs9p3(ERKGeneric, eSSPRKs9p3Abstract):
-    pass
-
-
-class eSSPRKs10p3(ERKGeneric, eSSPRKs10p3Abstract):
-    pass
-
-
-class BackwardEuler(StaticButcherTableauIntegrator, BackwardEulerAbstract):
-    """Backward Euler scheme using Irksome's built-in implementation."""
-    butcher_tableau = IrksomeBackwardEuler()
-    stage_type = "dirk"
-
-
-class ImplicitMidpoint(StaticButcherTableauIntegrator, ImplicitMidpointAbstract):
-    """Implicit midpoint scheme using Irksome's GaussLegendre(1) implementation."""
-    butcher_tableau = GaussLegendre(1)
-    stage_type = "dirk"
-
-
-class CrankNicolsonRK(DIRKGeneric, CrankNicolsonAbstract):
-    pass
-
-
-class DIRK22(DIRKGeneric, DIRK22Abstract):
-    pass
-
-
-class DIRK23(DIRKGeneric, DIRK23Abstract):
-    pass
-
-
-class DIRK33(DIRKGeneric, DIRK33Abstract):
-    pass
-
-
-class DIRK43(DIRKGeneric, DIRK43Abstract):
-    pass
-
-
-class DIRKLSPUM2(DIRKGeneric, DIRKLSPUM2Abstract):
-    pass
-
-
-class DIRKLPUM2(DIRKGeneric, DIRKLPUM2Abstract):
-    pass
 
 
 class IrksomeRadauIIA(IrksomeIntegrator):
@@ -1196,13 +956,12 @@ class IrksomeRadauIIA(IrksomeIntegrator):
     def __init__(
         self,
         equation: Equation,
-        solution: firedrake.Function,
+        solution: fd.Function,
         dt: float,
         order: int = 3,
-        solution_old: Optional[firedrake.Function] = None,
+        solution_old: Optional[fd.Function] = None,
         solver_parameters: Optional[dict[str, Any]] = {},
-        strong_bcs: Optional[list[firedrake.DirichletBC]] = None,
-        **kwargs  # Accept additional kwargs
+        strong_bcs: Optional[list[fd.DirichletBC]] = None,
     ):
         # Create Irksome RadauIIA tableau
         butcher = RadauIIA(order)
@@ -1216,7 +975,7 @@ class IrksomeRadauIIA(IrksomeIntegrator):
             stage_type="deriv",  # "deriv" for fully implicit schemes
             solution_old=solution_old,
             strong_bcs=strong_bcs,
-            solver_parameters=solver_parameters
+            solver_parameters=solver_parameters,
         )
 
 
@@ -1226,13 +985,12 @@ class IrksomeGaussLegendre(IrksomeIntegrator):
     def __init__(
         self,
         equation: Equation,
-        solution: firedrake.Function,
+        solution: fd.Function,
         dt: float,
         order: int = 2,
-        solution_old: Optional[firedrake.Function] = None,
+        solution_old: Optional[fd.Function] = None,
         solver_parameters: Optional[dict[str, Any]] = {},
-        strong_bcs: Optional[list[firedrake.DirichletBC]] = None,
-        **kwargs  # Accept additional kwargs for compatibility
+        strong_bcs: Optional[list[fd.DirichletBC]] = None,
     ):
         # Create Irksome GaussLegendre tableau
         butcher = GaussLegendre(order)
@@ -1246,7 +1004,7 @@ class IrksomeGaussLegendre(IrksomeIntegrator):
             stage_type="deriv",  # "deriv" for fully implicit schemes
             solution_old=solution_old,
             strong_bcs=strong_bcs,
-            solver_parameters=solver_parameters
+            solver_parameters=solver_parameters,
         )
 
 
@@ -1256,12 +1014,12 @@ class IrksomeLobattoIIIA(IrksomeIntegrator):
     def __init__(
         self,
         equation: Equation,
-        solution: firedrake.Function,
+        solution: fd.Function,
         dt: float,
         order: int = 2,
-        solution_old: Optional[firedrake.Function] = None,
+        solution_old: Optional[fd.Function] = None,
         solver_parameters: Optional[dict[str, Any]] = {},
-        strong_bcs: Optional[list[firedrake.DirichletBC]] = None,
+        strong_bcs: Optional[list[fd.DirichletBC]] = None,
     ):
         # Create Irksome LobattoIIIA tableau
         butcher = LobattoIIIA(order)
@@ -1275,7 +1033,7 @@ class IrksomeLobattoIIIA(IrksomeIntegrator):
             stage_type="dirk",
             solution_old=solution_old,
             strong_bcs=strong_bcs,
-            solver_parameters=solver_parameters
+            solver_parameters=solver_parameters,
         )
 
 
@@ -1285,12 +1043,12 @@ class IrksomeLobattoIIIC(IrksomeIntegrator):
     def __init__(
         self,
         equation: Equation,
-        solution: firedrake.Function,
+        solution: fd.Function,
         dt: float,
         order: int = 2,
-        solution_old: Optional[firedrake.Function] = None,
+        solution_old: Optional[fd.Function] = None,
         solver_parameters: Optional[dict[str, Any]] = {},
-        strong_bcs: Optional[list[firedrake.DirichletBC]] = None,
+        strong_bcs: Optional[list[fd.DirichletBC]] = None,
     ):
         # Create Irksome LobattoIIIC tableau
         butcher = LobattoIIIC(order)
@@ -1304,18 +1062,20 @@ class IrksomeLobattoIIIC(IrksomeIntegrator):
             stage_type="deriv",  # for fully implicit schemes
             solution_old=solution_old,
             strong_bcs=strong_bcs,
-            solver_parameters=solver_parameters
+            solver_parameters=solver_parameters,
         )
 
 
 class IrksomeAlexander(StaticButcherTableauIntegrator):
     """Direct access to Irksome's Alexander scheme."""
+
     butcher_tableau = Alexander()
     stage_type = "dirk"
 
 
 class IrksomeQinZhang(StaticButcherTableauIntegrator):
     """Direct access to Irksome's QinZhang scheme."""
+
     butcher_tableau = QinZhang()
     stage_type = "dirk"
 
@@ -1326,13 +1086,12 @@ class IrksomePareschiRusso(IrksomeIntegrator):
     def __init__(
         self,
         equation: Equation,
-        solution: firedrake.Function,
+        solution: fd.Function,
         dt: float,
         x: float = 0.5,  # Default value for PareschiRusso parameter
-        solution_old: Optional[firedrake.Function] = None,
+        solution_old: Optional[fd.Function] = None,
         solver_parameters: Optional[dict[str, Any]] = {},
-        strong_bcs: Optional[list[firedrake.DirichletBC]] = None,
-        **kwargs  # Accept additional kwargs compatibility
+        strong_bcs: Optional[list[fd.DirichletBC]] = None,
     ):
         # Create Irksome PareschiRusso tableau
         butcher = PareschiRusso(x)
@@ -1346,5 +1105,5 @@ class IrksomePareschiRusso(IrksomeIntegrator):
             stage_type="dirk",
             solution_old=solution_old,
             strong_bcs=strong_bcs,
-            solver_parameters=solver_parameters
+            solver_parameters=solver_parameters,
         )

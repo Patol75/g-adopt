@@ -1,5 +1,4 @@
 from firedrake import *
-from firedrake.output import VTKFile
 
 from .approximations import (
     AnelasticLiquidApproximation,
@@ -34,28 +33,31 @@ from .time_stepper import (
     BackwardEuler,
     CrankNicolsonRK,
     ImplicitMidpoint,
-    eSSPRKs3p3,
-    eSSPRKs10p3,
-    # Direct Irksome scheme access
-    IrksomeRadauIIA,
+    IrksomeAlexander,
     IrksomeGaussLegendre,
     IrksomeLobattoIIIA,
     IrksomeLobattoIIIC,
-    IrksomeAlexander,
-    IrksomeQinZhang,
     IrksomePareschiRusso,
+    IrksomeQinZhang,
+    IrksomeRadauIIA,
+    eSSPRKs3p3,
+    eSSPRKs10p3,
 )
-from .transport_solver import DiffusiveSmoothingSolver, EnergySolver, GenericTransportSolver
+from .transport_solver import (
+    DiffusiveSmoothingSolver,
+    EnergySolver,
+    GenericTransportSolver,
+)
 from .utility import (
     InteriorBC,
     LayerAveraging,
     ParameterLog,
     TimestepAdaptor,
+    get_boundary_ids,
     interpolate_1d_profile,
     log,
     node_coordinates,
     timer_decorator,
-    get_boundary_ids,
 )
 
 PETSc.Sys.popErrorHandler()
