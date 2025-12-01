@@ -75,7 +75,6 @@ V = VectorFunctionSpace(mesh, "Q", 2)  # Velocity function space (vector)
 W = FunctionSpace(mesh, "Q", 1)  # Pressure function space (scalar)
 Z = MixedFunctionSpace([V, W])  # Stokes function space (mixed)
 K = FunctionSpace(mesh, "DQ", 2)  # Level-set function space (scalar, discontinuous)
-R = FunctionSpace(mesh, "R", 0)  # Real space (constants across the domain)
 
 stokes = Function(Z)  # A field over the mixed function space Z
 stokes.subfunctions[0].rename("Velocity")  # Firedrake function for velocity
@@ -171,8 +170,8 @@ approximation = BoussinesqApproximation(Ra, RaB=RaB)
 # advances in time. We specify the initial time, initial time step $\Delta t$, and
 # output frequency (in time units).
 
-time_now = 0.0  # Initial time
-time_step = Function(R).assign(1.0)  # Initial time step
+time_step, time = time_objects(mesh, dt=1.0)  # Initial time step and time
+time_float = float(time)
 output_frequency = 10.0  # Frequency (based on simulation time) at which to output
 t_adapt = TimestepAdaptor(
     time_step, u, V, target_cfl=0.6, maximum_timestep=output_frequency
@@ -213,7 +212,9 @@ stokes_solver.solve()
 # required, as the numerical domain is closed.
 adv_kwargs = {"u": u, "timestep": time_step}
 reini_kwargs = {"epsilon": epsilon}
-level_set_solver = LevelSetSolver(psi, adv_kwargs=adv_kwargs, reini_kwargs=reini_kwargs)
+level_set_solver = LevelSetSolver(
+    psi, time, adv_kwargs=adv_kwargs, reini_kwargs=reini_kwargs
+)
 # -
 
 # We now set up our output. To do so, we create the output file as a ParaView Data file
@@ -223,7 +224,7 @@ level_set_solver = LevelSetSolver(psi, adv_kwargs=adv_kwargs, reini_kwargs=reini
 
 # +
 output_file = VTKFile("output.pvd")
-output_file.write(*stokes.subfunctions, psi, time=time_now)
+output_file.write(*stokes.subfunctions, psi, time=time_float)
 
 plog = ParameterLog("params.log", mesh)
 plog.log_str("step time dt u_rms entrainment")
@@ -243,8 +244,8 @@ output_counter = 1  # A counter to keep track of outputting
 time_end = 2000.0
 while True:
     # Update timestep
-    if time_end - time_now < output_frequency:
-        t_adapt.maximum_timestep = time_end - time_now
+    if time_end - time_float < output_frequency:
+        t_adapt.maximum_timestep = time_end - time_float
     t_adapt.update_timestep()
 
     # Advect level set
@@ -254,7 +255,8 @@ while True:
 
     # Increment iteration count and time
     step += 1
-    time_now += float(time_step)
+    time.assign(time + time_step)
+    time_float = float(time)
 
     # Calculate proportion of material entrained above a given height
     buoy_entr = material_entrainment(
@@ -266,15 +268,15 @@ while True:
     )
 
     # Log diagnostics
-    plog.log_str(f"{step} {time_now} {float(time_step)} {gd.u_rms()} {buoy_entr}")
+    plog.log_str(f"{step} {time_float} {float(time_step)} {gd.u_rms()} {buoy_entr}")
 
     # Write output
-    if time_now >= output_counter * output_frequency:
-        output_file.write(*stokes.subfunctions, psi, time=time_now)
+    if time_float >= output_counter * output_frequency:
+        output_file.write(*stokes.subfunctions, psi, time=time_float)
         output_counter += 1
 
     # Check if simulation has completed
-    if time_now >= time_end:
+    if time_float >= time_end:
         plog.close()  # Close logging file
 
         # Checkpoint solution fields to disk

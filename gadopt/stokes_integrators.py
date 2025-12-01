@@ -753,7 +753,7 @@ class InternalVariableSolver(StokesSolverBase):
         /,
         *,
         internal_variables: fd.Function | list[fd.Function],
-        dt: float,
+        dt: fd.Function,
         **kwargs,
     ) -> None:
 

@@ -363,7 +363,6 @@ boundary = get_boundary_ids(mesh)
 V = VectorFunctionSpace(mesh, "CG", 2)  # Displacement function space
 S = TensorFunctionSpace(mesh, "DQ", 1)  # Stress tensor function space
 DQ0 = FunctionSpace(mesh, "DQ", 0)  # Density/viscosity/shear modulus function space
-R = FunctionSpace(mesh, "R", 0)  # Real function space (for constants)
 
 # Let's use the python package *PyVista* to visualise the resulting mesh.
 
@@ -500,21 +499,25 @@ for layer_visc, layer_mu in zip(viscosity_values, shear_modulus_values):
 # +
 # Timestepping parameters
 Tstart = 0
-time = Function(R).assign(Tstart * year_in_seconds / characteristic_maxwell_time)
-
 dt_years = 1000
-dt = Constant(dt_years * year_in_seconds / characteristic_maxwell_time)
+dt, time = time_objects(
+    mesh,
+    dt=dt_years * year_in_seconds / characteristic_maxwell_time,
+    t=Tstart * year_in_seconds / characteristic_maxwell_time,
+)  # Initial time step and time
 Tend_years = 110e3
-Tend = Constant(Tend_years * year_in_seconds / characteristic_maxwell_time)
+Tend = Tend_years * year_in_seconds / characteristic_maxwell_time
 dt_out_years = 2e3
-dt_out = Constant(dt_out_years * year_in_seconds / characteristic_maxwell_time)
+dt_out = dt_out_years * year_in_seconds / characteristic_maxwell_time
 
-max_timesteps = round((Tend - Tstart * year_in_seconds/characteristic_maxwell_time) / dt)
+max_timesteps = round(
+    (Tend - Tstart * year_in_seconds / characteristic_maxwell_time) / float(dt)
+)
 log("max timesteps: ", max_timesteps)
 
-output_frequency = round(dt_out / dt)
+output_frequency = round(dt_out / float(dt))
 log("output_frequency:", output_frequency)
-log(f"dt: {float(dt * characteristic_maxwell_time / year_in_seconds)} years")
+log(f"dt: {float(dt) * characteristic_maxwell_time / year_in_seconds} years")
 log(f"Simulation start time: {Tstart} years")
 # -
 

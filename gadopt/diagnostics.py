@@ -15,6 +15,8 @@ import numpy as np
 
 from .utility import CombinedSurfaceMeasure, vertical_component
 
+__all__ = ["GeodynamicalDiagnostics"]
+
 
 class GeodynamicalDiagnostics:
     """Typical simulation diagnostics used in geodynamical simulations.

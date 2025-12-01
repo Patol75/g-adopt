@@ -17,16 +17,10 @@ from . import scalar_equation as scalar_eq
 from .approximations import BaseApproximation
 from .equations import Equation
 from .solver_options_manager import ConfigType, SolverConfigurationMixin
-from .time_stepper import BackwardEuler, IrksomeIntegrator
+from .time_stepper import BackwardEuler, IrksomeIntegrator, time_objects
 from .utility import DEBUG, INFO, absv, ensure_constant, is_continuous, log, log_level
 
-__all__ = [
-    "GenericTransportSolver",
-    "EnergySolver",
-    "DiffusiveSmoothingSolver",
-    "direct_energy_solver_parameters",
-    "iterative_energy_solver_parameters",
-]
+__all__ = ["DiffusiveSmoothingSolver", "EnergySolver", "GenericTransportSolver"]
 
 iterative_energy_solver_parameters: dict[str, Any] = {
     "mat_type": "aij",
@@ -75,7 +69,9 @@ class GenericTransportBase(SolverConfigurationMixin, abc.ABC):
     Args:
       solution:
         Firedrake function for the field of interest
-      delta_t:
+      t:
+        Simulation time
+      dt:
         Simulation time step
       timestepper:
         Runge-Kutta time integrator employing an explicit or implicit numerical scheme
@@ -110,7 +106,8 @@ class GenericTransportBase(SolverConfigurationMixin, abc.ABC):
         self,
         solution: Function,
         /,
-        delta_t: Constant,
+        t: Function,
+        dt: Function,
         timestepper: IrksomeIntegrator,
         *,
         solution_old: Function | None = None,
@@ -122,7 +119,8 @@ class GenericTransportBase(SolverConfigurationMixin, abc.ABC):
         su_advection: bool = False,
     ) -> None:
         self.solution = solution
-        self.delta_t = delta_t
+        self.t = t
+        self.dt = dt
         self.timestepper = timestepper
         self.timestepper_kwargs = timestepper_kwargs or {}
         self.solution_old = solution_old or Function(solution)
@@ -243,22 +241,17 @@ class GenericTransportBase(SolverConfigurationMixin, abc.ABC):
         self.ts = self.timestepper(
             self.equation,
             self.solution,
-            self.delta_t,
+            self.t,
+            self.dt,
             solution_old=self.solution_old,
             solver_parameters=self.solver_parameters,
             strong_bcs=self.strong_bcs,
             **self.timestepper_kwargs,
         )
 
-    def solver_callback(self) -> None:
-        """Optional instructions to execute right after a solve."""
-        pass
-
-    def solve(self, t: float | None = None) -> None:
+    def solve(self) -> None:
         """Advances solver in time."""
-        self.ts.advance(t=t)
-
-        self.solver_callback()
+        self.ts.advance()
 
 
 class GenericTransportSolver(GenericTransportBase):
@@ -283,7 +276,9 @@ class GenericTransportSolver(GenericTransportBase):
         List of equation terms to include (a string for a single term is accepted)
       solution:
         Firedrake function for the field of interest
-      delta_t:
+      t:
+        Simulation time
+      dt:
         Simulation time step
       timestepper:
         Runge-Kutta time integrator employing an explicit or implicit numerical scheme
@@ -312,13 +307,14 @@ class GenericTransportSolver(GenericTransportBase):
         terms: str | list[str],
         solution: Function,
         /,
-        delta_t: Constant,
+        t: Function,
+        dt: Function,
         timestepper: IrksomeIntegrator,
         **kwargs,
     ) -> None:
         self.terms = [terms] if isinstance(terms, str) else terms
 
-        super().__init__(solution, delta_t, timestepper, **kwargs)
+        super().__init__(solution, t, dt, timestepper, **kwargs)
 
     def set_equation(self) -> None:
         self.equation = Equation(
@@ -343,7 +339,9 @@ class EnergySolver(GenericTransportBase):
         Firedrake function for velocity
       approximation:
         G-ADOPT approximation defining terms in the system of equations
-      delta_t:
+      t:
+        Simulation time
+      dt:
         Simulation time step
       timestepper:
         Runge-Kutta time integrator employing an explicit or implicit numerical scheme
@@ -371,14 +369,15 @@ class EnergySolver(GenericTransportBase):
         u: Function,
         approximation: BaseApproximation,
         /,
-        delta_t: Constant,
+        t: Function,
+        dt: Function,
         timestepper: IrksomeIntegrator,
         **kwargs,
     ) -> None:
         self.u = u
         self.approximation = approximation
 
-        super().__init__(solution, delta_t, timestepper, **kwargs)
+        super().__init__(solution, t, dt, timestepper, **kwargs)
 
         self.T_old = self.solution_old
 
@@ -435,18 +434,21 @@ class DiffusiveSmoothingSolver(GenericTransportSolver):
         function_space = solution.function_space()
 
         # Calculate diffusive time step
-        dt = self._calculate_diffusive_time_step(function_space, wavelength, K, integration_quad_degree)
+        dt, t = self._calculate_diffusive_time_step(
+            function_space, wavelength, K, integration_quad_degree
+        )
 
         # Initialise the parent GenericTransportSolver
         super().__init__(
             "diffusion",
             solution,
+            t,
             dt,
             BackwardEuler,
             eq_attrs={"diffusivity": ensure_constant(K)},
             bcs=bcs,
             solver_parameters=solver_parameters,
-            **kwargs
+            **kwargs,
         )
 
     def _calculate_diffusive_time_step(
@@ -477,7 +479,7 @@ class DiffusiveSmoothingSolver(GenericTransportSolver):
             # Scalar diffusivity (Number, Constant, or scalar Function)
             K_avg = K
 
-        return Constant(wavelength**2 / (4 * K_avg))
+        return time_objects(mesh, dt=wavelength**2 / (4 * K_avg))
 
     def action(self, field: Function) -> None:
         """Apply smoothing action to an input field.

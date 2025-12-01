@@ -6,37 +6,15 @@ time stepping functionality, and error handling.
 """
 
 import pytest
-from firedrake import *
 
 from gadopt import *
+from gadopt.equations import Equation
 from gadopt.scalar_equation import diffusion_term, mass_term, source_term
-from gadopt.time_stepper import *
-
-# Define scheme mappings
-rk_schemes = [
-    ERKEuler,
-    SSPRK33,
-    ERKMidpoint,
-    ERKLSPUM2,
-    ERKLPUM2,
-    eSSPRKs3p3,
-    eSSPRKs4p3,
-    eSSPRKs5p3,
-    eSSPRKs6p3,
-    eSSPRKs7p3,
-    eSSPRKs8p3,
-    eSSPRKs9p3,
-    eSSPRKs10p3,
-    BackwardEuler,
-    ImplicitMidpoint,
-    CrankNicolsonRK,
-    DIRK22,
-    DIRK23,
-    DIRK33,
-    DIRK43,
-    DIRKLSPUM2,
-    DIRKLPUM2,
-]
+from gadopt.time_stepper import (
+    create_custom_tableau,
+    rk_schemes_gadopt,
+    rk_schemes_irksome,
+)
 
 
 def gadopt_to_irksome_tableau(scheme_class):
@@ -57,12 +35,13 @@ def gadopt_to_irksome_tableau(scheme_class):
     return butcher_tableau, scheme_class.stage_type
 
 
-def create_irksome_integrator(equation, solution, dt, scheme_class, **kwargs):
+def create_irksome_integrator(equation, solution, t, dt, scheme_class, **kwargs):
     """Create an IrksomeIntegrator from a G-ADOPT scheme class.
 
     Args:
         equation: G-ADOPT equation to integrate
         solution: Firedrake function representing the equation's solution
+        t: Integration time
         dt: Integration time step
         scheme_class: G-ADOPT AbstractRKScheme class
         **kwargs: Additional arguments passed to IrksomeIntegrator
@@ -73,19 +52,14 @@ def create_irksome_integrator(equation, solution, dt, scheme_class, **kwargs):
     tableau, stage_type = gadopt_to_irksome_tableau(scheme_class)
 
     return IrksomeIntegrator(
-        equation=equation,
-        solution=solution,
-        dt=dt,
-        butcher=tableau,
-        stage_type=stage_type,
-        **kwargs,
+        equation, solution, t, dt, tableau, stage_type=stage_type, **kwargs
     )
 
 
 class TestTableauConversion:
     """Test tableau conversion from G-ADOPT to Irksome."""
 
-    @pytest.mark.parametrize("scheme_class", rk_schemes)
+    @pytest.mark.parametrize("scheme_class", rk_schemes_gadopt)
     def test_tableau_conversion(self, scheme_class):
         """Test that scheme classes convert to valid Irksome tableaux."""
         tableau, stage_type = gadopt_to_irksome_tableau(scheme_class)
@@ -113,18 +87,7 @@ class TestTableauConversion:
 class TestDirectIrksomeSchemes:
     """Test direct Irksome scheme classes."""
 
-    @pytest.mark.parametrize(
-        "irksome_class",
-        [
-            IrksomeRadauIIA,
-            IrksomeGaussLegendre,
-            IrksomeLobattoIIIA,
-            IrksomeLobattoIIIC,
-            IrksomeAlexander,
-            IrksomeQinZhang,
-            IrksomePareschiRusso,
-        ],
-    )
+    @pytest.mark.parametrize("irksome_class", rk_schemes_irksome)
     def test_direct_irksome_schemes(self, irksome_class):
         """Test that direct Irksome schemes can be instantiated."""
         # Create simple setup
@@ -145,23 +108,10 @@ class TestDirectIrksomeSchemes:
         )
 
         # Test instantiation
-        if irksome_class in [
-            IrksomeRadauIIA,
-            IrksomeGaussLegendre,
-            IrksomeLobattoIIIA,
-            IrksomeLobattoIIIC,
-        ]:
-            # These have order parameter
-            integrator = irksome_class(equation, u, dt=0.01, order=2)
-        elif irksome_class == IrksomePareschiRusso:
-            # This has x parameter
-            integrator = irksome_class(equation, u, dt=0.01, x=0.5)
-        else:
-            # These don't have additional parameters
-            integrator = irksome_class(equation, u, dt=0.01)
+        dt, t = time_objects(mesh, dt=0.01)
+        integrator = irksome_class(equation, u, t, dt)
 
         assert integrator is not None
-        assert integrator.equation == equation
         assert integrator.solution == u
 
 
@@ -176,10 +126,10 @@ class TestEnergySolverIntegration:
             ImplicitMidpoint,
             DIRK33,
             # Test direct Irksome schemes
-            IrksomeRadauIIA,
-            IrksomeGaussLegendre,
-            IrksomeLobattoIIIA,
-            IrksomePareschiRusso,
+            RadauIIA,
+            GaussLegendre,
+            LobattoIIIA,
+            PareschiRusso,
         ],
     )
     def test_energy_solver_integration(self, time_stepper):
@@ -197,8 +147,8 @@ class TestEnergySolverIntegration:
         approximation = BoussinesqApproximation(Ra)
 
         # Test EnergySolver creation
-        dt = Constant(0.01)
-        solver = EnergySolver(T, u, approximation, dt, time_stepper)
+        dt, t = time_objects(mesh, dt=0.01)
+        solver = EnergySolver(T, u, approximation, t, dt, time_stepper)
 
         assert solver is not None
         assert solver.timestepper is not None
@@ -239,9 +189,10 @@ class TestBoundaryConditions:
         bcs = [DirichletBC(V, Constant(0.0), "on_boundary")]
 
         # Create integrator with boundary conditions
+        dt, t = time_objects(mesh, dt=0.01)
         tableau, stage_type = gadopt_to_irksome_tableau(scheme_class)
         integrator = IrksomeIntegrator(
-            equation, u, dt=0.01, butcher=tableau, stage_type=stage_type, strong_bcs=bcs
+            equation, u, t, dt, tableau, stage_type=stage_type, strong_bcs=bcs
         )
 
         # Set initial condition
@@ -297,22 +248,23 @@ class TestTimeStepping:
         )
 
         # Create integrator
+        dt, t = time_objects(mesh, dt=0.01)
         integrator = create_irksome_integrator(
-            equation, u, dt=0.01, scheme_class=scheme_class
+            equation, u, t, dt, scheme_class=scheme_class
         )
 
-        # # Set initial condition
-        # x = SpatialCoordinate(mesh)
-        # u.interpolate(sin(pi * x[0]) * sin(pi * x[1]))
+        # Set initial condition
+        x = SpatialCoordinate(mesh)
+        u.interpolate(sin(pi * x[0]) * sin(pi * x[1]))
 
-        # # Take a few time steps
-        # initial_norm = norm(u)
-        # for _ in range(3):
-        #     integrator.advance()
+        # Take a few time steps
+        initial_norm = norm(u)
+        for _ in range(3):
+            integrator.advance()
 
-        # # Check that solution evolved (should be different from initial)
-        # final_norm = norm(u)
-        # assert not abs(final_norm - initial_norm) < 1e-10  # Should have evolved
+        # Check that solution evolved (should be different from initial)
+        final_norm = norm(u)
+        assert not abs(final_norm - initial_norm) < 1e-10  # Should have evolved
 
     def test_time_stepping_forward_euler(self):
         """Test Forward Euler time stepping specifically."""
@@ -331,8 +283,9 @@ class TestTimeStepping:
             bcs={},
         )
 
+        dt, t = time_objects(mesh, dt=0.01)
         integrator = create_irksome_integrator(
-            equation, u, dt=0.01, scheme_class=ERKEuler
+            equation, u, t, dt, scheme_class=ERKEuler
         )
 
         # Set initial condition
@@ -362,9 +315,8 @@ class TestTimeStepping:
             bcs={},
         )
 
-        integrator = create_irksome_integrator(
-            equation, u, dt=0.01, scheme_class=DIRK33
-        )
+        dt, t = time_objects(mesh, dt=0.01)
+        integrator = create_irksome_integrator(equation, u, t, dt, scheme_class=DIRK33)
 
         # Set initial condition
         x = SpatialCoordinate(mesh)
@@ -400,8 +352,8 @@ class TestDynamicTimeStepping:
         )
 
         # Create integrator with Constant dt
-        dt = Constant(0.01)
-        integrator = create_irksome_integrator(equation, u, dt, ERKEuler)
+        dt, t = time_objects(mesh, dt=0.01)
+        integrator = create_irksome_integrator(equation, u, t, dt, ERKEuler)
 
         # Set initial condition
         x = SpatialCoordinate(mesh)
@@ -437,8 +389,8 @@ class TestDynamicTimeStepping:
             bcs={},
         )
 
-        dt = Constant(0.01)
-        integrator = create_irksome_integrator(equation, u, dt, DIRK33)
+        dt, t = time_objects(mesh, dt=0.01)
+        integrator = create_irksome_integrator(equation, u, t, dt, DIRK33)
 
         x = SpatialCoordinate(mesh)
         u.interpolate(sin(pi * x[0]) * sin(pi * x[1]))
@@ -482,7 +434,8 @@ class TestErrorHandling:
 
         # Test with invalid order (should raise AssertionError from Irksome)
         with pytest.raises(AssertionError):
-            _ = IrksomeRadauIIA(equation, u, dt=0.01, order=0)
+            dt, t = time_objects(mesh, dt=0.01)
+            _ = RadauIIA(equation, u, t, dt, tableau_parameter=0)
 
     def test_very_small_time_step(self):
         """Test behavior with very small time step."""
@@ -502,8 +455,9 @@ class TestErrorHandling:
         )
 
         # Test with very small dt
+        dt, t = time_objects(mesh, dt=1e-10)
         integrator = create_irksome_integrator(
-            equation, u, dt=1e-10, scheme_class=ERKEuler
+            equation, u, t, dt, scheme_class=ERKEuler
         )
         assert integrator is not None
 
@@ -551,8 +505,9 @@ class TestIntegrationWithExistingSchemes:
         )
 
         # Create integrator using existing scheme
+        dt, t = time_objects(mesh, dt=0.01)
         integrator = create_irksome_integrator(
-            equation, u, dt=0.01, scheme_class=scheme_class
+            equation, u, t, dt, scheme_class=scheme_class
         )
 
         # Set initial condition and advance
@@ -587,8 +542,9 @@ class TestSolverParameters:
         # Test with custom solver parameters
         solver_params = {"ksp_type": "gmres", "ksp_rtol": 1e-6, "pc_type": "ilu"}
 
+        dt, t = time_objects(mesh, dt=0.01)
         integrator = create_irksome_integrator(
-            equation, u, dt=0.01, scheme_class=DIRK33, solver_parameters=solver_params
+            equation, u, t, dt, scheme_class=DIRK33, solver_parameters=solver_params
         )
 
         assert integrator is not None
@@ -614,8 +570,7 @@ class TestSolverParameters:
 
         solver_params = {"ksp_type": "cg", "pc_type": "jacobi"}
 
-        integrator = IrksomeRadauIIA(
-            equation, u, dt=0.01, order=2, solver_parameters=solver_params
-        )
+        dt, t = time_objects(mesh, dt=0.01)
+        integrator = RadauIIA(equation, u, t, dt, solver_parameters=solver_params)
 
         assert integrator is not None

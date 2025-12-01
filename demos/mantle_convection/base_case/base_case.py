@@ -227,10 +227,10 @@ z.subfunctions[1].rename("Pressure")
 Ra = Constant(1e4)  # Rayleigh number
 approximation = BoussinesqApproximation(Ra)
 
-time = 0.0  # Initial time
-delta_t = Constant(1e-6)  # Initial time-step
+time_step, time = time_objects(mesh, dt=1e-6)  # Initial time step and time
+time_float = float(time)
 timesteps = 20000  # Maximum number of timesteps
-t_adapt = TimestepAdaptor(delta_t, u, V, maximum_timestep=0.1, increase_tolerance=1.5)
+t_adapt = TimestepAdaptor(time_step, u, V, maximum_timestep=0.1, increase_tolerance=1.5)
 
 steady_state_tolerance = 1e-9  # Used to determine if solution has reached a steady state.
 # -
@@ -328,7 +328,9 @@ gd = GeodynamicalDiagnostics(z, T, boundary.bottom, boundary.top)
 # We note that solution of the two variational problems is undertaken by PETSc.
 
 # +
-energy_solver = EnergySolver(T, u, approximation, delta_t, ImplicitMidpoint, bcs=temp_bcs)
+energy_solver = EnergySolver(
+    T, u, approximation, time, time_step, ImplicitMidpoint, bcs=temp_bcs
+)
 
 stokes_solver = StokesSolver(
     z,
@@ -350,14 +352,14 @@ stokes_solver = StokesSolver(
 # the change in temperature and, once this drops below the steady_state_tolerance specified above,
 # we exit the timeloop.
 
-for timestep in range(0, timesteps):
+for timestep in range(timesteps):
 
     # Write output:
     if timestep % output_frequency == 0:
         output_file.write(*z.subfunctions, T)
 
-    dt = t_adapt.update_timestep()
-    time += dt
+    t_adapt.update_timestep()
+    time.assign(time + time_step)
 
     # Solve Stokes sytem:
     stokes_solver.solve()
@@ -372,9 +374,11 @@ for timestep in range(0, timesteps):
     maxchange = sqrt(assemble((T - energy_solver.T_old)**2 * dx))
 
     # Log diagnostics:
-    plog.log_str(f"{timestep} {time} {float(delta_t)} {maxchange} "
-                 f"{gd.u_rms()} {gd.u_rms_top()} {gd.ux_max(boundary.top)} {gd.Nu_top()} "
-                 f"{gd.Nu_bottom()} {energy_conservation} {gd.T_avg()} ")
+    plog.log_str(
+        f"{timestep} {time_float} {float(time_step)} {maxchange} "
+        f"{gd.u_rms()} {gd.u_rms_top()} {gd.ux_max(boundary.top)} {gd.Nu_top()} "
+        f"{gd.Nu_bottom()} {energy_conservation} {gd.T_avg()} "
+    )
 
     # Leave if steady-state has been achieved:
     if maxchange < steady_state_tolerance:

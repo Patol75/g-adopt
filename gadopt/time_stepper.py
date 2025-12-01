@@ -1,10 +1,8 @@
-r"""This module provides several classes to perform integration of time-dependent
-equations. Users choose if they require an explicit or implicit time integrator, and
-they instantiate one of the implemented algorithm class, for example, `ERKEuler`, by
-providing relevant parameters defined in the parent class (i.e. `ERKGeneric` or
-`DIRKGeneric`). Then, they call the `advance` method to request a solver update.
-
-This module includes Irksome integration.
+"""This module provides several classes to perform integration of time-dependent
+equations via Irksome. Users choose if they require an explicit or diagonally implicit
+time integrator, and they instantiate one of the implemented algorithm classes, for
+example, `ERKEuler`, by providing relevant parameters defined in `RKGeneric`. Then, they
+call the `advance` method to request a solver update.
 """
 
 from abc import ABC, abstractmethod
@@ -26,71 +24,96 @@ from irksome.ButcherTableaux import (
 )
 
 from .equations import Equation
-from .utility import ensure_constant
+
+
+def time_objects(mesh: fd.MeshGeometry, *, dt: float, t: float = 0.0):
+    """Generates time-step and time objects as expected by Irksome."""
+    mesh_constant = MeshConstant(mesh)
+
+    return mesh_constant.Constant(dt), mesh_constant.Constant(t)
 
 
 class IrksomeIntegrator:
     """Time integrator using Irksome as the backend.
 
-    This class wraps Irksome's TimeStepper while maintaining G-ADOPT's API
-    for compatibility with our existing code.
-
     Args:
-        equation: G-ADOPT equation to integrate
-        solution: Firedrake function representing the equation's solution
-        dt: Integration time step (Firedrake Constant or float)
-        butcher: Irksome Butcher tableau (e.g., GaussLegendre, RadauIIA)
-        stage_type: Type of stage formulation (e.g., "deriv", "dirk", "explicit")
-        solution_old: Firedrake function representing the equation's solution
-                      at the previous timestep
-        strong_bcs: List of Firedrake boundary conditions (DirichletBC or EquationBC).
-                    Note: EquationBC is only compatible with bc_type="DAE".
-        bc_type: Boundary condition type for Irksome ("DAE" or "ODE").
-                 Only applies when stage_type="deriv".
-
-                 - "DAE" (default): Differential-Algebraic Equation style BCs.
-                   Enforces BCs as constraints, handling incompatible BC + IC gracefully.
-                   Supports both DirichletBC and EquationBC.
-
-                 - "ODE": Ordinary Differential Equation style BCs.
-                   Takes time derivative of boundary data. Requires compatible BC + IC.
-                   Only supports DirichletBC (EquationBC raises NotImplementedError).
-                   Only works with splitting=AI (additive implicit), where AI splits the
-                   Butcher matrix A as (A, I) with I being the identity matrix. This is
-                   the default splitting strategy and reformulates the RK method to have
-                   a denser mass matrix with block-diagonal stiffness.
-        solver_parameters: Dictionary of solver parameters provided to PETSc
-        initial_time: Initial time value (default: 0.0). This initialises the internal
-                      time variable that Irksome uses in time-dependent forms.
-        adaptive_parameters: Optional dict for adaptive time-stepping (stage_type="deriv" only).
-                            Keys: tol, dtmin, dtmax, KI, KP, max_reject, onscale_factor,
-                            safety_factor, gamma0_params. See Irksome documentation.
-        **irksome_kwargs: Additional keyword arguments passed directly to Irksome's TimeStepper.
-                         Examples: splitting, nullspace, transpose_nullspace, near_nullspace,
-                         appctx, form_compiler_parameters, etc.
+        equation:
+            G-ADOPT equation to integrate
+        solution:
+            Firedrake function representing the equation's solution
+        t:
+            Integration time (Firedrake Function)
+        dt:
+            Integration time step (Firedrake Function)
+        butcher_tableau:
+            Irksome Butcher tableau (e.g., GaussLegendre, RadauIIA)
+        stage_type:
+            Type of stage formulation (e.g., `"deriv"`, `"dirk"`, `"explicit"`)
+        solution_old:
+            Firedrake function for the equation's solution at the previous timestep
+        strong_bcs:
+            List of Firedrake boundary conditions (`DirichletBC` or `EquationBC`).
+            Note: `EquationBC` is only compatible with `bc_type="DAE"`.
+        bc_type:
+            Boundary condition type for Irksome ("DAE" or "ODE"). Only applies when
+            `stage_type="deriv"`.
+            - `"DAE"` (default): Differential-Algebraic Equation style BCs.
+                Enforces BCs as constraints, handling incompatible BC + IC gracefully.
+                Supports both `DirichletBC` and `EquationBC`.
+            - `"ODE"`: Ordinary Differential Equation style BCs.
+                Takes time derivative of boundary data. Requires compatible BC + IC.
+                Only supports `DirichletBC` (`EquationBC` raises `NotImplementedError`).
+                Only works with `splitting=AI` (additive implicit), where `AI` splits
+                the Butcher matrix A as (A, I), with I the identity matrix. This is the
+                default splitting strategy; it reformulates the RK method to have a
+                denser mass matrix with block-diagonal stiffness.
+        solver_parameters:
+            Dictionary of solver parameters provided to PETSc
+        adaptive_parameters:
+            Optional dict for adaptive time-stepping (`stage_type="deriv"` only).
+            - `tol`
+            - `dtmin`
+            - `dtmax`
+            - `KI`
+            - `KP`
+            - `max_reject`
+            - `onscale_factor`
+            - `safety_factor`
+            - `gamma0_params`
+        **irksome_kwargs:
+            Additional keyword arguments passed directly to Irksome's `TimeStepper`.
+            - `splitting`
+            - `nullspace`
+            - `transpose_nullspace`
+            - `near_nullspace`
+            - `appctx`
+            - `form_compiler_parameters`
 
     Note:
-        The internal time variable (self.t) is shared with Irksome's TimeStepper.
-        Users should manage time externally and pass it to advance(t=...).
+        Irksome's `TimeStepper` does not update time, nor does `IrksomeIntegrator`.
+        Users should manage time externally.
 
-        For adaptive time-stepping, the advance() method returns (error, dt_used) tuple
-        when adaptive_parameters is provided.
+        For adaptive time-stepping (i.e. when `adaptive_parameters` is provided), the
+        `advance` method returns `(adapt_error, adapt_dt)` tuple. Otherwise, it returns
+        `None`.
 
     Example:
-        # Basic usage
-        integrator = IrksomeIntegrator(eq, T, dt, GaussLegendre(2))
+        # Basic usage (here, GaussLegendre comes from Irksome, not G-ADOPT)
+        integrator = IrksomeIntegrator(eq, T, t, dt, GaussLegendre(2))
 
         # With adaptive time-stepping
         integrator = IrksomeIntegrator(
-            eq, T, dt, RadauIIA(3),
-            adaptive_parameters={"tol": 1e-3, "dtmin": 1e-6, "dtmax": 0.1}
+            eq,
+            T,
+            t,
+            dt,
+            RadauIIA(3),  # Irksome class, not G-ADOPT equivalent
+            adaptive_parameters={"tol": 1e-3, "dtmin": 1e-6, "dtmax": 0.1},
         )
 
         # With additional Irksome parameters
         integrator = IrksomeIntegrator(
-            eq, T, dt, butcher,
-            splitting=AI,  # Passed to Irksome
-            nullspace=my_nullspace  # Passed to Irksome
+            eq, T, t, dt, butcher_tableau, splitting=AI, nullspace=my_nullspace
         )
     """
 
@@ -98,43 +121,33 @@ class IrksomeIntegrator:
         self,
         equation: Equation,
         solution: fd.Function,
-        dt: float,
-        butcher: ButcherTableau,
+        t: fd.Function,
+        dt: fd.Function,
+        butcher_tableau: ButcherTableau,
+        *,
         stage_type: str = "deriv",
         solution_old: fd.Function | None = None,
         strong_bcs: list[fd.DirichletBC] | None = None,
         bc_type: str = "DAE",
         solver_parameters: dict[str, Any] | None = None,
-        initial_time: float = 0.0,
         adaptive_parameters: dict[str, Any] | None = None,
         **irksome_kwargs,
     ):
-        self.equation = equation
+        # Unique solver identifier
+        self.name = "-".join([self.__class__.__name__, equation.__class__.__name__])
+
         self.solution = solution
         self.solution_old = solution_old or fd.Function(
             solution, name=solution.name() + " (old)"
         )
-
-        # Unique identifier used in solver (for API consistency with TimeIntegrator)
-        self.name = "-".join(
-            [self.__class__.__name__, self.equation.__class__.__name__]
-        )
-
-        # Keep reference to original dt constant for syncing
-        self.dt_reference = ensure_constant(dt)
-
-        # Create MeshConstant objects for time variables (what Irksome expects)
-        # These are shared with Irksome's TimeStepper (ensures synchronisation)
-        mesh_constant = MeshConstant(equation.mesh)
-        self.t = mesh_constant.Constant(initial_time)  # Irksome integrator's time
-        self.dt = mesh_constant.Constant(float(dt))  # Irksome integrator's time step
+        # MeshConstant.Constant objects for Irksome time variables used in TimeStepper
+        self.t = t  # Irksome integrator's time
+        self.dt = dt  # Irksome integrator's time step
+        # Store Dirichlet conditions for application before advancing the integrator
+        self.strong_bcs = strong_bcs or []
 
         # Build the Irksome form
         F = equation.mass(Dt(solution)) - equation.residual(solution)
-
-        # Store strong_bcs for applying at initialisation
-        # This ensures BC-consistency like the original G-ADOPT DIRKGeneric
-        self.strong_bcs = strong_bcs or []
 
         # Build kwargs for Irksome TimeStepper
         # Start with g-adopt's standard parameters
@@ -143,61 +156,48 @@ class IrksomeIntegrator:
             "bcs": strong_bcs,
             "solver_parameters": solver_parameters,
         }
-
         # Add bc_type only for stage formulations that support it
-        if stage_type == "deriv":
+        if strong_bcs is not None and stage_type == "deriv":
             stepper_kwargs["bc_type"] = bc_type
-
         # Add adaptive_parameters if provided
         self.is_adaptive = adaptive_parameters is not None
         if self.is_adaptive:
+            assert stage_type == "deriv", (
+                "A method with stage_type=deriv is required for adaptive_parameters"
+            )
             stepper_kwargs["adaptive_parameters"] = adaptive_parameters
-
         # Merge in any additional Irksome-specific kwargs
-        # This allows users to pass splitting, nullspace, etc.
+        # This allows users to pass splitting, nullspace, etc...
         stepper_kwargs.update(irksome_kwargs)
 
         self.stepper = TimeStepper(
-            F,
-            butcher,
-            self.t,  # Shared time variable (MeshConstant)
-            self.dt,  # MeshConstant for Irksome (synced from dt_reference)
-            solution,
-            **stepper_kwargs,
+            F, butcher_tableau, self.t, self.dt, solution, **stepper_kwargs
         )
 
-    def advance(self, t: float | None = None) -> tuple[float, float] | None:
+    def advance(self) -> tuple[float, float] | None:
         """Advance the solution by one time step.
 
-        Args:
-            t: Optional current simulation time. If provided, updates the internal time
-               variable before advancing. If not provided, uses the current value of
-               self.t.
-
         Returns:
-            When adaptive_parameters are provided: tuple (error, dt_used) where:
-                - error: Error estimate from the adaptive stepper
-                - dt_used: Actual time step used (may differ from initial dt)
-            When adaptive_parameters are not provided: None
+            Either `None` if `adaptive_parameters` is omitted or (adapt_error, adapt_dt)
+            if it is provided, in which case we have
+                - adapt_error: Error estimate from the adaptive stepper
+                - adapt_dt: Actual time step used (may differ from initial dt)
 
         Note:
             Following Irksome's design, this method does NOT automatically update the
             time variable after advancing. Users should manually update time after
-            calling advance():
+            calling `advance`:
                 # Non-adaptive case:
-                integrator.advance(t=current_time)
-                current_time += dt
+                integrator.advance()
+                current_time.assign(current_time + dt)
 
                 # Adaptive case:
-                result = integrator.advance(t=current_time)
-                if result is not None:
-                    error, dt_used = result
-                    current_time += dt_used
-            This ensures time synchronisation between g-adopt and Irksome's internal
+                adapt_error, adapt_dt = integrator.advance()
+                current_time.assign(current_time + adapt_dt)
+            This ensures time synchronisation between G-ADOPT and Irksome's internal
             state.
 
-            When adaptive timestepping is enabled, Irksome updates dt internally. This
-            method syncs dt back to dt_reference so get_dt() returns the actual dt used.
+            When adaptive timestepping is enabled, Irksome updates dt internally.
 
             For time-dependent forcings, include time-dependent expressions directly in
             your UFL form using the time variable `t` (e.g., `sin(t)`, `exp(-t)`, etc.),
@@ -210,70 +210,10 @@ class IrksomeIntegrator:
         # Save current solution to solution_old before advancing
         self.solution_old.assign(self.solution)
 
-        # Sync dt with dt_reference before advancing
-        # This ensures Irksome uses the current dt value (in case user updated dt_reference)
-        self.dt.assign(self.dt_reference)
-
-        # Update internal time if provided by user
-        # This ensures Irksome uses the correct time during this advance() call
-        if t is not None:
-            self.t.assign(ensure_constant(t))
-
-        # Advance using Irksome
+        # Advance time integration
         # Note: Irksome uses self.t internally but does not modify it
         # The time used during stages is: t + c[i] * dt
-        result = self.stepper.advance()
-
-        # Handle adaptive timestepping return value
-        if self.is_adaptive:
-            # Irksome returns (error, dt_used) tuple when adaptive is enabled
-            adapt_error, adapt_dt = result
-
-            # Sync dt back to dt_reference
-            # (Irksome updated dt internally during advance)
-            self.dt_reference.assign(float(adapt_dt))
-
-            # Return tuple so users can track the actual dt used
-            return (adapt_error, float(adapt_dt))
-
-        # Non-adaptive: return None for consistency
-        return
-
-    @property
-    def time(self) -> float:
-        """Get the current value of the internal time variable.
-
-        Returns:
-            The current time.
-        """
-        return self.t
-
-    @property
-    def time_step(self) -> float:
-        """Get the current value of the time step from dt_reference.
-
-        Returns:
-            The current time step.
-        """
-        return self.dt_reference
-
-
-def create_custom_tableau(
-    a: list[list[float]], b: list[float], c: list[float]
-) -> ButcherTableau:
-    """Create a custom Irksome ButcherTableau from arrays.
-
-    Args:
-        a: Butcher matrix
-        b: weights
-        c: nodes
-
-    Returns:
-        An Irksome ButcherTableau instance
-    """
-    return ButcherTableau(
-        A=a, b=b, btilde=None, c=c, order=len(b), embedded_order=None, gamma0=None
-    )
+        return self.stepper.advance()
 
 
 class RKGeneric(IrksomeIntegrator):
@@ -292,26 +232,28 @@ class RKGeneric(IrksomeIntegrator):
         self,
         equation: Equation,
         solution: fd.Function,
-        dt: float,
-        solution_old: fd.Function | None = None,
-        solver_parameters: dict[str, Any] = {},
-        strong_bcs: list[fd.DirichletBC] | None = None,
+        t: fd.Function,
+        dt: fd.Function,
+        tableau_parameter: int | float | None = None,
         **kwargs,
     ):
+        if tableau_parameter is None:
+            tableau_parameter = getattr(self, "tableau_parameter", None)
+        if tableau_parameter is not None:
+            self.butcher_tableau = self.butcher_tableau(tableau_parameter)
+
         if self.butcher_tableau is None:
             raise ValueError(
                 f"{self.__class__.__name__} must define a butcher_tableau attribute"
             )
 
         super().__init__(
-            equation=equation,
-            solution=solution,
-            dt=dt,
-            butcher=self.butcher_tableau,
+            equation,
+            solution,
+            t,
+            dt,
+            self.butcher_tableau,
             stage_type=self.stage_type,
-            solution_old=solution_old,
-            strong_bcs=strong_bcs,
-            solver_parameters=solver_parameters,
             **kwargs,
         )
 
@@ -328,57 +270,31 @@ class DIRKGeneric(RKGeneric):
     stage_type = "dirk"
 
 
+class CRKGeneric(RKGeneric):
+    """Generic collocation Runge-Kutta time integrator using Irksome."""
+
+    stage_type = "value"
+
+
 CFL_UNCONDITIONALLY_STABLE = -1
 
 
-class AbstractRKScheme(ABC):
-    """Abstract class for defining Runge-Kutta schemes.
+def create_custom_tableau(
+    a: list[list[float]], b: list[float], c: list[float]
+) -> ButcherTableau:
+    """Create a custom Irksome ButcherTableau from arrays.
 
-    Derived classes must define the Butcher tableau (arrays :attr:`a`, :attr:`b`,
-    :attr:`c`) and the CFL number (:attr:`cfl_coeff`).
+    Args:
+        a: Butcher matrix
+        b: weights
+        c: nodes
 
-    Currently only explicit or diagonally implicit schemes are supported.
+    Returns:
+        An Irksome ButcherTableau instance
     """
-
-    def __init_subclass__(cls):
-        if cls.__name__ == "eSSPRK":
-            return
-
-        np.testing.assert_array_equal(
-            np.triu(cls.a, 1),
-            np.zeros_like(cls.a),
-            err_msg="Butcher tableau must be lower diagonal",
-        )
-        np.testing.assert_allclose(
-            np.sum(cls.a, axis=1),
-            cls.c,
-            err_msg="Inconsistent Butcher tableau: Row sum of a is not c",
-        )
-
-        cls.butcher_tableau = create_custom_tableau(cls.a, cls.b, cls.c)
-
-    @property
-    @abstractmethod
-    def a(self):
-        """Runge-Kutta matrix :math:`a_{i,j}` of the Butcher tableau"""
-
-    @property
-    @abstractmethod
-    def b(self):
-        """weights :math:`b_{i}` of the Butcher tableau"""
-
-    @property
-    @abstractmethod
-    def c(self):
-        """nodes :math:`c_{i}` of the Butcher tableau"""
-
-    @property
-    @abstractmethod
-    def cfl_coeff(self):
-        """CFL number of the scheme
-
-        Value 1.0 corresponds to Forward Euler time step.
-        """
+    return ButcherTableau(
+        A=a, b=b, btilde=None, c=c, order=len(b), embedded_order=None, gamma0=None
+    )
 
 
 def shu_osher_butcher(
@@ -403,6 +319,56 @@ def shu_osher_butcher(
     c = np.sum(A, axis=1)
 
     return A, b, c
+
+
+class AbstractRKScheme(ABC):
+    """Abstract class for defining Runge-Kutta schemes.
+
+    Derived classes must define the Butcher tableau (arrays `a`, `b`, and `c`) and the
+    CFL number (`cfl_coeff`).
+
+    Currently only explicit or diagonally implicit schemes are supported.
+    """
+
+    def __init_subclass__(cls):
+        if cls.__name__ == "eSSPRK":
+            return
+
+        np.testing.assert_array_equal(
+            np.triu(cls.a, 1),
+            np.zeros_like(cls.a),
+            err_msg="Butcher tableau must be lower diagonal",
+        )
+        np.testing.assert_allclose(
+            np.sum(cls.a, axis=1),
+            cls.c,
+            err_msg="Inconsistent Butcher tableau: Row sum of a is not c",
+        )
+
+        cls.butcher_tableau = create_custom_tableau(cls.a, cls.b, cls.c)
+
+    @property
+    @abstractmethod
+    def a(cls):
+        """Runge-Kutta matrix :math:`a_{i,j}` of the Butcher tableau"""
+
+    @property
+    @abstractmethod
+    def b(cls):
+        """weights :math:`b_{i}` of the Butcher tableau"""
+
+    @property
+    @abstractmethod
+    def c(cls):
+        """nodes :math:`c_{i}` of the Butcher tableau"""
+
+    @property
+    @abstractmethod
+    def cfl_coeff(cls):
+        """CFL number of the scheme
+
+        Value 1.0 corresponds to Forward Euler time step.
+        """
 
 
 class ERKEuler(AbstractRKScheme, ERKGeneric):
@@ -750,15 +716,11 @@ class BackwardEuler(DIRKGeneric):
 
     butcher_tableau = BackwardEuler()
 
-    cfl_coeff = CFL_UNCONDITIONALLY_STABLE
-
 
 class ImplicitMidpoint(DIRKGeneric):
     """Implicit midpoint scheme using Irksome's GaussLegendre(1) implementation."""
 
     butcher_tableau = GaussLegendre(1)
-
-    cfl_coeff = CFL_UNCONDITIONALLY_STABLE
 
 
 class CrankNicolsonRK(AbstractRKScheme, DIRKGeneric):
@@ -906,140 +868,90 @@ class DIRKLPUM2(AbstractRKScheme, DIRKGeneric):
     cfl_coeff = 4.34  # NOTE for linear problems, nonlin => 3.09
 
 
-class IrksomeRadauIIA(IrksomeIntegrator):
-    """Direct access to Irksome's RadauIIA scheme."""
-
-    def __init__(
-        self,
-        equation: Equation,
-        solution: fd.Function,
-        dt: float,
-        order: int = 3,
-        solution_old: fd.Function | None = None,
-        solver_parameters: dict[str, Any] = {},
-        strong_bcs: list[fd.DirichletBC] | None = None,
-    ):
-        super().__init__(
-            equation=equation,
-            solution=solution,
-            dt=dt,
-            butcher=RadauIIA(order),
-            stage_type="deriv",  # "deriv" for fully implicit schemes
-            solution_old=solution_old,
-            strong_bcs=strong_bcs,
-            solver_parameters=solver_parameters,
-        )
-
-
-class IrksomeGaussLegendre(IrksomeIntegrator):
+class GaussLegendre(CRKGeneric):
     """Direct access to Irksome's GaussLegendre scheme."""
 
-    def __init__(
-        self,
-        equation: Equation,
-        solution: fd.Function,
-        dt: float,
-        order: int = 2,
-        solution_old: fd.Function | None = None,
-        solver_parameters: dict[str, Any] = {},
-        strong_bcs: list[fd.DirichletBC] | None = None,
-    ):
-        super().__init__(
-            equation=equation,
-            solution=solution,
-            dt=dt,
-            butcher=GaussLegendre(order),
-            stage_type="deriv",  # "deriv" for fully implicit schemes
-            solution_old=solution_old,
-            strong_bcs=strong_bcs,
-            solver_parameters=solver_parameters,
-        )
+    butcher_tableau = GaussLegendre
+    tableau_parameter = 2
 
 
-class IrksomeLobattoIIIA(IrksomeIntegrator):
+class LobattoIIIA(CRKGeneric):
     """Direct access to Irksome's LobattoIIIA scheme."""
 
-    def __init__(
-        self,
-        equation: Equation,
-        solution: fd.Function,
-        dt: float,
-        order: int = 2,
-        solution_old: fd.Function | None = None,
-        solver_parameters: dict[str, Any] = {},
-        strong_bcs: list[fd.DirichletBC] | None = None,
-    ):
-        super().__init__(
-            equation=equation,
-            solution=solution,
-            dt=dt,
-            butcher=LobattoIIIA(order),
-            stage_type="dirk",
-            solution_old=solution_old,
-            strong_bcs=strong_bcs,
-            solver_parameters=solver_parameters,
-        )
+    butcher_tableau = LobattoIIIA
+    tableau_parameter = 2
 
 
-class IrksomeLobattoIIIC(IrksomeIntegrator):
+class RadauIIA(CRKGeneric):
+    """Direct access to Irksome's RadauIIA scheme."""
+
+    butcher_tableau = RadauIIA
+    tableau_parameter = 3
+
+
+class LobattoIIIC(CRKGeneric):
     """Direct access to Irksome's LobattoIIIC scheme."""
 
-    def __init__(
-        self,
-        equation: Equation,
-        solution: fd.Function,
-        dt: float,
-        order: int = 2,
-        solution_old: fd.Function | None = None,
-        solver_parameters: dict[str, Any] = {},
-        strong_bcs: list[fd.DirichletBC] | None = None,
-    ):
-        super().__init__(
-            equation=equation,
-            solution=solution,
-            dt=dt,
-            butcher=LobattoIIIC(order),
-            stage_type="deriv",  # for fully implicit schemes
-            solution_old=solution_old,
-            strong_bcs=strong_bcs,
-            solver_parameters=solver_parameters,
-        )
+    butcher_tableau = LobattoIIIC
+    tableau_parameter = 2
 
 
-class IrksomeAlexander(RKGeneric):
-    """Direct access to Irksome's Alexander scheme."""
+class PareschiRusso(DIRKGeneric):
+    """Direct access to Irksome's PareschiRusso scheme."""
 
-    butcher_tableau = Alexander()
-    stage_type = "dirk"
+    butcher_tableau = PareschiRusso
+    tableau_parameter = 0.5
 
 
-class IrksomeQinZhang(RKGeneric):
+class QinZhang(DIRKGeneric):
     """Direct access to Irksome's QinZhang scheme."""
 
     butcher_tableau = QinZhang()
-    stage_type = "dirk"
 
 
-class IrksomePareschiRusso(IrksomeIntegrator):
-    """Direct access to Irksome's PareschiRusso scheme."""
+class Alexander(DIRKGeneric):
+    """Direct access to Irksome's Alexander scheme."""
 
-    def __init__(
-        self,
-        equation: Equation,
-        solution: fd.Function,
-        dt: float,
-        x: float = 0.5,  # Default value for PareschiRusso parameter
-        solution_old: fd.Function | None = None,
-        solver_parameters: dict[str, Any] = {},
-        strong_bcs: list[fd.DirichletBC] | None = None,
-    ):
-        super().__init__(
-            equation=equation,
-            solution=solution,
-            dt=dt,
-            butcher=PareschiRusso(x),
-            stage_type="dirk",
-            solution_old=solution_old,
-            strong_bcs=strong_bcs,
-            solver_parameters=solver_parameters,
-        )
+    butcher_tableau = Alexander()
+
+
+rk_schemes_gadopt = [
+    ERKEuler,
+    ERKLSPUM2,
+    ERKLPUM2,
+    ERKMidpoint,
+    SSPRK33,
+    eSSPRKs3p3,
+    eSSPRKs4p3,
+    eSSPRKs5p3,
+    eSSPRKs6p3,
+    eSSPRKs7p3,
+    eSSPRKs8p3,
+    eSSPRKs9p3,
+    eSSPRKs10p3,
+    BackwardEuler,  # Implemented using Irksome's BackwardEuler()
+    ImplicitMidpoint,  # Implemented using Irksome's GaussLegendre(1)
+    CrankNicolsonRK,
+    DIRK22,
+    DIRK23,
+    DIRK33,
+    DIRK43,
+    DIRKLSPUM2,
+    DIRKLPUM2,
+]
+
+rk_schemes_irksome = [
+    GaussLegendre,
+    LobattoIIIA,
+    RadauIIA,
+    LobattoIIIC,
+    PareschiRusso,
+    QinZhang,
+    Alexander,
+]
+
+__all__ = (
+    ["time_objects", "IrksomeIntegrator"]
+    + [scheme.__name__ for scheme in rk_schemes_gadopt]
+    + [scheme.__name__ for scheme in rk_schemes_irksome]
+)

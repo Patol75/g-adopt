@@ -440,6 +440,7 @@ class LevelSetSolver(SolverConfigurationMixin):
     def __init__(
         self,
         level_set: fd.Function,
+        time: fd.Function,
         /,
         *,
         adv_kwargs: dict[str, Any] | None = None,
@@ -479,6 +480,7 @@ class LevelSetSolver(SolverConfigurationMixin):
         self.solution_old = fd.Function(self.solution)
         self.solution_space = level_set.function_space()
         self.mesh = self.solution.ufl_domain()
+        self.time = time
         self.advection = False
         self.reinitialisation = False
 
@@ -584,6 +586,7 @@ class LevelSetSolver(SolverConfigurationMixin):
             self.adv_solver = GenericTransportSolver(
                 "advection",
                 self.solution,
+                self.time,
                 self.adv_kwargs["timestep"] / self.adv_kwargs["subcycles"],
                 self.adv_kwargs["time_integrator"],
                 solution_old=self.solution_old,
@@ -607,6 +610,7 @@ class LevelSetSolver(SolverConfigurationMixin):
             self.reini_integrator = self.reini_kwargs["time_integrator"](
                 reinitialisation_equation,
                 self.solution,
+                self.time,
                 self.reini_kwargs["timestep"],
                 solution_old=self.solution_old,
                 solver_parameters=self.solver_parameters["reini"],

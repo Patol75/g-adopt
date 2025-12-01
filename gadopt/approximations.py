@@ -16,14 +16,14 @@ from firedrake import Function, Identity, div, grad, inner, sym, ufl, tr
 from .utility import ensure_constant, vertical_component
 
 __all__ = [
-    "BoussinesqApproximation",
-    "ExtendedBoussinesqApproximation",
-    "TruncatedAnelasticLiquidApproximation",
     "AnelasticLiquidApproximation",
-    "IncompressibleMaxwellApproximation",
-    "QuasiCompressibleInternalVariableApproximation",
+    "BoussinesqApproximation",
     "CompressibleInternalVariableApproximation",
+    "ExtendedBoussinesqApproximation",
+    "IncompressibleMaxwellApproximation",
     "MaxwellApproximation",
+    "QuasiCompressibleInternalVariableApproximation",
+    "TruncatedAnelasticLiquidApproximation",
 ]
 
 

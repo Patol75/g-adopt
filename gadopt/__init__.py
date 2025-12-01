@@ -1,25 +1,9 @@
 from firedrake import *
 
-from .approximations import (
-    AnelasticLiquidApproximation,
-    BoussinesqApproximation,
-    CompressibleInternalVariableApproximation,
-    ExtendedBoussinesqApproximation,
-    IncompressibleMaxwellApproximation,
-    MaxwellApproximation,
-    QuasiCompressibleInternalVariableApproximation,
-    TruncatedAnelasticLiquidApproximation,
-)
-from .diagnostics import GeodynamicalDiagnostics
-from .level_set_tools import (
-    LevelSetSolver,
-    assign_level_set_values,
-    interface_thickness,
-    material_entrainment,
-    material_field,
-    min_max_height,
-)
-from .limiter import VertexBasedP1DGLimiter
+from .approximations import *
+from .diagnostics import *
+from .level_set_tools import *
+from .limiter import *
 from .nullspaces import create_stokes_nullspace, rigid_body_modes
 from .preconditioners import FreeSurfaceMassInvPC, SPDAssembledPC
 from .solver_options_manager import DeleteParam
@@ -29,25 +13,8 @@ from .stokes_integrators import (
     StokesSolver,
     ViscoelasticStokesSolver,
 )
-from .time_stepper import (
-    BackwardEuler,
-    CrankNicolsonRK,
-    ImplicitMidpoint,
-    IrksomeAlexander,
-    IrksomeGaussLegendre,
-    IrksomeLobattoIIIA,
-    IrksomeLobattoIIIC,
-    IrksomePareschiRusso,
-    IrksomeQinZhang,
-    IrksomeRadauIIA,
-    eSSPRKs3p3,
-    eSSPRKs10p3,
-)
-from .transport_solver import (
-    DiffusiveSmoothingSolver,
-    EnergySolver,
-    GenericTransportSolver,
-)
+from .time_stepper import *
+from .transport_solver import *
 from .utility import (
     InteriorBC,
     LayerAveraging,
