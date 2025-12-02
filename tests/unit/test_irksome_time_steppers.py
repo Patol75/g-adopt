@@ -49,10 +49,10 @@ def create_irksome_integrator(equation, solution, t, dt, scheme_class, **kwargs)
     Returns:
         IrksomeIntegrator instance
     """
-    tableau, stage_type = gadopt_to_irksome_tableau(scheme_class)
+    butcher_tableau, stage_type = gadopt_to_irksome_tableau(scheme_class)
 
     return IrksomeIntegrator(
-        equation, solution, t, dt, tableau, stage_type=stage_type, **kwargs
+        equation, solution, t, dt, butcher_tableau, stage_type=stage_type, **kwargs
     )
 
 
@@ -104,7 +104,6 @@ class TestDirectIrksomeSchemes:
             residual_terms=[diffusion_term, source_term],
             mass_term=mass_term,
             eq_attrs=eq_attrs,
-            bcs={},
         )
 
         # Test instantiation
@@ -182,7 +181,6 @@ class TestBoundaryConditions:
             residual_terms=[diffusion_term, source_term],
             mass_term=mass_term,
             eq_attrs=eq_attrs,
-            bcs={},
         )
 
         # Create Dirichlet boundary conditions
@@ -244,7 +242,6 @@ class TestTimeStepping:
             residual_terms=[diffusion_term, source_term],
             mass_term=mass_term,
             eq_attrs=eq_attrs,
-            bcs={},
         )
 
         # Create integrator
@@ -280,7 +277,6 @@ class TestTimeStepping:
             residual_terms=[diffusion_term, source_term],
             mass_term=mass_term,
             eq_attrs=eq_attrs,
-            bcs={},
         )
 
         dt, t = time_objects(mesh, dt=0.01)
@@ -312,7 +308,6 @@ class TestTimeStepping:
             residual_terms=[diffusion_term, source_term],
             mass_term=mass_term,
             eq_attrs=eq_attrs,
-            bcs={},
         )
 
         dt, t = time_objects(mesh, dt=0.01)
@@ -348,7 +343,6 @@ class TestDynamicTimeStepping:
             residual_terms=[diffusion_term, source_term],
             mass_term=mass_term,
             eq_attrs=eq_attrs,
-            bcs={},
         )
 
         # Create integrator with Constant dt
@@ -386,7 +380,6 @@ class TestDynamicTimeStepping:
             residual_terms=[diffusion_term, source_term],
             mass_term=mass_term,
             eq_attrs=eq_attrs,
-            bcs={},
         )
 
         dt, t = time_objects(mesh, dt=0.01)
@@ -429,7 +422,6 @@ class TestErrorHandling:
             residual_terms=[diffusion_term, source_term],
             mass_term=mass_term,
             eq_attrs=eq_attrs,
-            bcs={},
         )
 
         # Test with invalid order (should raise AssertionError from Irksome)
@@ -451,7 +443,6 @@ class TestErrorHandling:
             residual_terms=[diffusion_term, source_term],
             mass_term=mass_term,
             eq_attrs=eq_attrs,
-            bcs={},
         )
 
         # Test with very small dt
@@ -501,7 +492,6 @@ class TestIntegrationWithExistingSchemes:
             residual_terms=[diffusion_term, source_term],
             mass_term=mass_term,
             eq_attrs=eq_attrs,
-            bcs={},
         )
 
         # Create integrator using existing scheme
@@ -536,7 +526,6 @@ class TestSolverParameters:
             residual_terms=[diffusion_term, source_term],
             mass_term=mass_term,
             eq_attrs=eq_attrs,
-            bcs={},
         )
 
         # Test with custom solver parameters
@@ -565,7 +554,6 @@ class TestSolverParameters:
             residual_terms=[diffusion_term, source_term],
             mass_term=mass_term,
             eq_attrs=eq_attrs,
-            bcs={},
         )
 
         solver_params = {"ksp_type": "cg", "pc_type": "jacobi"}
