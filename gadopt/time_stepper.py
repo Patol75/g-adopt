@@ -46,9 +46,9 @@ class IrksomeIntegrator:
         dt:
             Integration time step (Firedrake Function)
         butcher_tableau:
-            Irksome Butcher tableau (e.g., GaussLegendre, RadauIIA)
+            Irksome Butcher tableau (e.g. `GaussLegendre`, `RadauIIA`)
         stage_type:
-            Type of stage formulation (e.g., `"deriv"`, `"dirk"`, `"explicit"`)
+            Type of stage formulation (e.g. `"deriv"`, `"dirk"`, `"explicit"`)
         solution_old:
             Firedrake function for the equation's solution at the previous timestep
         strong_bcs:
@@ -156,7 +156,7 @@ class IrksomeIntegrator:
             "solver_parameters": solver_parameters,
         }
         # Add bc_type only for stage formulations that support it
-        if strong_bcs is not None and stage_type == "deriv":
+        if stage_type == "deriv":
             stepper_kwargs["bc_type"] = bc_type
         # Add adaptive_parameters if provided
         if adaptive_parameters is not None:
@@ -218,6 +218,20 @@ class IrksomeIntegrator:
 class RKGeneric(IrksomeIntegrator):
     """Generic Runge-Kutta time integrator using Irksome.
 
+    Args:
+        equation:
+            G-ADOPT equation to integrate
+        solution:
+            Firedrake function representing the equation's solution
+        t:
+            Integration time (Firedrake Function)
+        dt:
+            Integration time step (Firedrake Function)
+        tableau_parameter:
+            Parameter to initialise an Irksome Butcher tableau (e.g. `GaussLegendre`)
+        **kwargs:
+            Additional keyword arguments (see `IrksomeIntegrator`)
+
     Subclasses must set the `butcher_tableau` class attribute either directly from
     Irksome or via a subclass of `AbstractRKScheme` that defines the `a`, `b`, and `c`
     class attributes. Note that Irksome tableaux may accept a parameter, such as the
@@ -228,6 +242,7 @@ class RKGeneric(IrksomeIntegrator):
 
     butcher_tableau = None  # Must be set in subclasses
     stage_type = "deriv"  # Default stage type, can be overridden in subclasses
+    bc_type = "DAE"  # Default boundary condition type, can be overridden in subclasses
 
     def __init__(
         self,
@@ -255,6 +270,7 @@ class RKGeneric(IrksomeIntegrator):
             dt,
             self.butcher_tableau,
             stage_type=self.stage_type,
+            bc_type=self.bc_type,
             **kwargs,
         )
 
@@ -274,7 +290,7 @@ class DIRKGeneric(RKGeneric):
 class CRKGeneric(RKGeneric):
     """Generic collocation Runge-Kutta time integrator."""
 
-    stage_type = "value"
+    stage_type = "deriv"
 
 
 CFL_UNCONDITIONALLY_STABLE = -1
@@ -886,6 +902,7 @@ class LobattoIIIA(CRKGeneric):
 
     butcher_tableau = LobattoIIIA
     tableau_parameter = 2
+    bc_type = "ODE"
 
 
 class RadauIIA(CRKGeneric):
