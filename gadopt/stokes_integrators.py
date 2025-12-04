@@ -153,6 +153,8 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
         Firedrake function for the simulation time step in a coupled time integration
       timestepper:
         Runge-Kutta time integrator employing an explicit or implicit numerical scheme
+      timestepper_kwargs:
+        Dictionary of additional keyword arguments passed to the Irksome time stepper
       additional_forcing_term:
         Firedrake form specifying an additional term contributing to the residual
       bcs:
@@ -208,7 +210,8 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
         *,
         t: fd.Function | None = None,
         dt: fd.Function | None = None,
-        timestepper: IrksomeIntegrator,
+        timestepper: IrksomeIntegrator | None = None,
+        timestepper_kwargs: dict[str, Any] | None = None,
         additional_forcing_term: fd.Form | None = None,
         bcs: dict[int | str, dict[str, Any]] = {},
         quad_degree: int = 6,
@@ -225,6 +228,7 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
         self.t = t
         self.dt = dt
         self.timestepper = timestepper
+        self.timestepper_kwargs = timestepper_kwargs or {}
         self.additional_forcing_term = additional_forcing_term
         self.bcs = bcs
         self.quad_degree = quad_degree
@@ -251,7 +255,6 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
 
         self.rho_continuity = self.approximation.rho_continuity()
         self.equations = []  # G-ADOPT's Equation instances
-        self.F = 0.0  # Weak form of the system
 
         self.set_boundary_conditions()
         self.set_equations()
@@ -376,27 +379,7 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
 
     def set_solver(self) -> None:
         """Sets up the Firedrake variational problem and solver."""
-        if self.additional_forcing_term is not None:
-            self.F += self.additional_forcing_term
-
-        if self.constant_jacobian:
-            trial = fd.TrialFunction(self.solution_space)
-            F = fd.replace(self.F, {self.solution: trial})
-            a, L = fd.lhs(F), fd.rhs(F)
-
-            self.problem = fd.LinearVariationalProblem(
-                a, L, self.solution, bcs=self.strong_bcs, constant_jacobian=True
-            )
-            self.solver = fd.LinearVariationalSolver(
-                self.problem,
-                solver_parameters=self.solver_parameters,
-                nullspace=self.nullspace,
-                transpose_nullspace=self.transpose_nullspace,
-                near_nullspace=self.near_nullspace,
-                appctx=self.appctx,
-                options_prefix=self.name,
-            )
-        else:
+        if self.timestepper is not None:
             self.ts = self.timestepper(
                 self.equations,
                 self.solution,
@@ -409,11 +392,53 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
                 near_nullspace=self.near_nullspace,
                 appctx=self.appctx,
                 options_prefix=self.name,
+                **self.timestepper_kwargs,
             )
+        else:
+            F = -sum(
+                eq.residual(sol) for eq, sol in zip(self.equations, self.solution_split)
+            )
+            if self.additional_forcing_term is not None:
+                F += self.additional_forcing_term
+
+            if self.constant_jacobian:
+                trial = fd.TrialFunction(self.solution_space)
+                F = fd.replace(F, {self.solution: trial})
+                a, L = fd.lhs(F), fd.rhs(F)
+
+                self.problem = fd.LinearVariationalProblem(
+                    a, L, self.solution, bcs=self.strong_bcs, constant_jacobian=True
+                )
+                self.solver = fd.LinearVariationalSolver(
+                    self.problem,
+                    solver_parameters=self.solver_parameters,
+                    nullspace=self.nullspace,
+                    transpose_nullspace=self.transpose_nullspace,
+                    near_nullspace=self.near_nullspace,
+                    appctx=self.appctx,
+                    options_prefix=self.name,
+                )
+            else:
+                self.problem = fd.NonlinearVariationalProblem(
+                    F, self.solution, bcs=self.strong_bcs, J=self.J
+                )
+
+                self.solver = fd.NonlinearVariationalSolver(
+                    self.problem,
+                    solver_parameters=self.solver_parameters,
+                    nullspace=self.nullspace,
+                    transpose_nullspace=self.transpose_nullspace,
+                    near_nullspace=self.near_nullspace,
+                    appctx=self.appctx,
+                    options_prefix=self.name,
+                )
 
     def solve(self) -> None:
         """Solves the system."""
-        self.ts.advance()
+        if self.timestepper is not None:
+            self.ts.advance()
+        else:
+            self.solver.solve()
 
 
 class StokesSolver(StokesSolverBase):

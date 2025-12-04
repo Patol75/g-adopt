@@ -175,7 +175,7 @@ stokes_solver = StokesSolver(
     T,
     t=time,
     dt=time_step,
-    timestepper=ImplicitMidpoint,
+    timestepper=BackwardEuler,
     bcs=stokes_bcs,
 )
 
