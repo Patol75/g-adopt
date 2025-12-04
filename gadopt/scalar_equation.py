@@ -21,6 +21,7 @@ and then return `-F`.
 """
 
 from firedrake import *
+from irksome import Dt
 
 from .equations import Equation, interior_penalty_factor
 from .utility import is_continuous, normal_is_continuous
@@ -152,7 +153,7 @@ def mass_term(eq: Equation, trial: Argument | ufl.indexed.Indexed | Function) ->
         The UFL form associated with the mass term of the equation.
 
     """
-    return dot(eq.test, trial) * eq.dx
+    return dot(eq.test, Dt(trial)) * eq.dx
 
 
 advection_term.required_attrs = {"u"}

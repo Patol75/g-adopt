@@ -10,7 +10,7 @@ from typing import Any
 
 import firedrake as fd
 import numpy as np
-from irksome import Dt, MeshConstant, TimeStepper
+from irksome import MeshConstant, TimeStepper
 from irksome.ButcherTableaux import (
     Alexander,
     BackwardEuler,
@@ -145,8 +145,11 @@ class IrksomeIntegrator:
         # Store Dirichlet conditions for application before advancing the integrator
         self.strong_bcs = strong_bcs or []
 
-        # Build the Irksome form
-        F = equation.mass(Dt(solution)) - equation.residual(solution)
+        # Irksome form; the negative residual sign is conventional in G-ADOPT.
+        # The mass term provided to `Equation` must employ the time derivative operator
+        # `Dt`, allowing an equation-specific implementation of the time derivative
+        # term.
+        F = equation.mass(solution) - equation.residual(solution)
 
         # Build kwargs for Irksome TimeStepper
         # Start with g-adopt's standard parameters
