@@ -87,10 +87,10 @@ approximation = BoussinesqApproximation(Ra)
 
 # We also specify a timestep adaptor as before.
 
-time = 0.0  # Initial time
-delta_t = Constant(1e-6)  # Initial time-step
+time_step, time = time_objects(mesh, dt=1e-6)  # Initial time step and time
+time_float = float(time)
 timesteps = 20000  # Maximum number of timesteps
-t_adapt = TimestepAdaptor(delta_t, u, V, maximum_timestep=0.1, increase_tolerance=1.5)
+t_adapt = TimestepAdaptor(time_step, u, V, maximum_timestep=0.1, increase_tolerance=1.5)
 steady_state_tolerance = 1e-9
 
 # We set up the initial conditions for the temperature field.
@@ -166,11 +166,17 @@ gd = GeodynamicalDiagnostics(z, T, boundary.bottom, boundary.top)
 
 # +
 energy_solver = EnergySolver(
-    T, u, approximation, delta_t, ImplicitMidpoint, bcs=temp_bcs
+    T, u, approximation, time, time_step, ImplicitMidpoint, bcs=temp_bcs
 )
 
 stokes_solver = StokesSolver(
-    z, approximation, T, dt=delta_t, bcs=stokes_bcs, constant_jacobian=False
+    z,
+    approximation,
+    T,
+    t=time,
+    dt=time_step,
+    timestepper=ImplicitMidpoint,
+    bcs=stokes_bcs,
 )
 
 # -
@@ -182,8 +188,8 @@ for timestep in range(0, timesteps):
     if timestep % output_frequency == 0:
         output_file.write(*z.subfunctions, T)
 
-    dt = t_adapt.update_timestep()
-    time += dt
+    t_adapt.update_timestep()
+    time.assign(time + time_step)
 
     # Solve Stokes sytem:
     stokes_solver.solve()
@@ -199,7 +205,7 @@ for timestep in range(0, timesteps):
 
     # Log diagnostics:
     plog.log_str(
-        f"{timestep} {time} {float(delta_t)} {maxchange} "
+        f"{timestep} {time_float} {float(time_step)} {maxchange} "
         f"{gd.u_rms()} {gd.u_rms_top()} {gd.ux_max(boundary.top)} {gd.Nu_top()} "
         f"{gd.Nu_bottom()} {energy_conservation} {gd.T_avg()} "
         f"{z.subfunctions[2].dat.data.min()} {z.subfunctions[2].dat.data.max()}"

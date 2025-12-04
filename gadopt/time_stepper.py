@@ -149,7 +149,14 @@ class IrksomeIntegrator:
         # The mass term provided to `Equation` must employ the time derivative operator
         # `Dt`, allowing an equation-specific implementation of the time derivative
         # term.
-        F = equation.mass(solution) - equation.residual(solution)
+        if isinstance(equation, list):
+            F = 0.0
+            for eq, sol in zip(equation, fd.split(solution)):
+                if eq.mass_term is not None:
+                    F += eq.mass(sol)
+                F -= eq.residual(sol)
+        else:
+            F = equation.mass(solution) - equation.residual(solution)
 
         # Build kwargs for Irksome TimeStepper
         # Start with g-adopt's standard parameters

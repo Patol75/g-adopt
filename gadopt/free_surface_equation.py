@@ -14,6 +14,7 @@ and at the very end return `-F`.
 """
 
 import firedrake as fd
+from irksome import Dt
 
 from .equations import Equation
 from .utility import vertical_component
@@ -44,8 +45,8 @@ def mass_term(
 
     """
     return (
-        eq.buoyancy_scale
-        * fd.dot(eq.test, trial)
+        eq.test
+        * Dt(eq.buoyancy_scale * trial)
         * vertical_component(eq.n)
         * eq.ds(eq.boundary_id)
     )

@@ -25,6 +25,7 @@ from .free_surface_equation import free_surface_term
 from .free_surface_equation import mass_term as mass_term_fs
 from .momentum_equation import compressible_viscoelastic_terms, stokes_terms
 from .solver_options_manager import SolverConfigurationMixin, ConfigType
+from .time_stepper import IrksomeIntegrator
 from .utility import (
     DEBUG,
     INFO,
@@ -146,10 +147,12 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
         Firedrake function representing the field over the mixed Stokes space
       approximation:
         G-ADOPT approximation defining terms in the system of equations
+      t:
+        Firedrake function for the simulation time in a coupled time integration
       dt:
-        Float specifying the time step if the system involves a coupled time integration
-      theta:
-        Float defining the theta scheme parameter used in a coupled time integration
+        Firedrake function for the simulation time step in a coupled time integration
+      timestepper:
+        Runge-Kutta time integrator employing an explicit or implicit numerical scheme
       additional_forcing_term:
         Firedrake form specifying an additional term contributing to the residual
       bcs:
@@ -191,13 +194,8 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
     | RaFS            | Yes (nd) | Rayleigh number (free-surface density contrast)  |
     | variable_rho_fs | No       | Account for buoyancy effects on interior density |
 
-    ### Classic theta values for coupled implicit time integration
-    | Theta |        Scheme         |
-    | :---- | :-------------------: |
-    | 0.5   | Crank-Nicolson method |
-    | 1.0   | Backward Euler method |
-
-    **Note**: Such a coupling can arise in the case of a free-surface implementation.
+    **Note**: Coupled time integrations can arise when including a free-surface boundary
+    or accounting for the density time-derivative in the mass conservation (e.g. PDA).
     """
 
     name = "MomentumSolver"
@@ -208,8 +206,9 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
         approximation: BaseApproximation,
         /,
         *,
-        dt: float | None = None,
-        theta: float = 0.5,
+        t: fd.Function | None = None,
+        dt: fd.Function | None = None,
+        timestepper: IrksomeIntegrator,
         additional_forcing_term: fd.Form | None = None,
         bcs: dict[int | str, dict[str, Any]] = {},
         quad_degree: int = 6,
@@ -223,8 +222,9 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
     ) -> None:
         self.solution = solution
         self.approximation = approximation
+        self.t = t
         self.dt = dt
-        self.theta = theta
+        self.timestepper = timestepper
         self.additional_forcing_term = additional_forcing_term
         self.bcs = bcs
         self.quad_degree = quad_degree
@@ -234,7 +234,6 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
         self.transpose_nullspace = transpose_nullspace
         self.near_nullspace = near_nullspace
 
-        self.solution_old = self.solution.copy(deepcopy=True)
         self.solution_space = self.solution.function_space()
         self.mesh = self.solution_space.mesh()
         self.k = upward_normal(self.mesh)
@@ -245,16 +244,9 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
         if self.is_mixed_space:
             self.tests = fd.TestFunctions(self.solution_space)
             self.solution_split = fd.split(solution)
-            self.solution_old_split = fd.split(self.solution_old)
         else:
             self.test = fd.TestFunction(self.solution_space)
             self.solution_split = (solution,)
-            self.solution_old_split = (self.solution_old,)
-
-        self.solution_theta_split = [
-            self.theta * sol + (1 - self.theta) * sol_old
-            for sol, sol_old in zip(self.solution_split, self.solution_old_split)
-        ]
         self.tests = fd.TestFunctions(self.solution_space)
 
         self.rho_continuity = self.approximation.rho_continuity()
@@ -263,7 +255,6 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
 
         self.set_boundary_conditions()
         self.set_equations()
-        self.set_form()
         self.set_solver_options(solver_parameters, solver_parameters_extra)
         self.set_solver()
 
@@ -330,19 +321,6 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
 
         Equations must be ordered like solutions in the mixed space.
         """
-
-    def set_form(self) -> None:
-        """Sets the weak form including linear and bilinear terms."""
-        for equation, solution, solution_old in zip(
-            self.equations, self.solution_split, self.solution_old_split
-        ):
-            if equation.mass_term:
-                if equation.scaling_factor != -self.theta:
-                    raise ValueError(
-                        "Equation scaling does not match employed theta scheme."
-                    )
-                self.F += equation.mass((solution - solution_old) / self.dt)
-            self.F -= equation.residual(solution)
 
     def set_solver_options(
         self,
@@ -419,11 +397,12 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
                 options_prefix=self.name,
             )
         else:
-            self.problem = fd.NonlinearVariationalProblem(
-                self.F, self.solution, bcs=self.strong_bcs, J=self.J
-            )
-            self.solver = fd.NonlinearVariationalSolver(
-                self.problem,
+            self.ts = self.timestepper(
+                self.equations,
+                self.solution,
+                self.t,
+                self.dt,
+                strong_bcs=self.strong_bcs,
                 solver_parameters=self.solver_parameters,
                 nullspace=self.nullspace,
                 transpose_nullspace=self.transpose_nullspace,
@@ -434,8 +413,7 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
 
     def solve(self) -> None:
         """Solves the system."""
-        self.solver.solve()
-        self.solution_old.assign(self.solution)
+        self.ts.advance()
 
 
 class StokesSolver(StokesSolverBase):
@@ -448,10 +426,10 @@ class StokesSolver(StokesSolverBase):
         G-ADOPT approximation defining terms in the system of equations
       T:
         Firedrake function representing the temperature field
+      t:
+        Firedrake function for the simulation time in a coupled time integration
       dt:
-        Float quantifying the time step used in a coupled time integration
-      theta:
-        Float quantifying the implicit contribution in a coupled time integration
+        Firedrake function for the simulation time step in a coupled time integration
       additional_forcing_term:
         Firedrake form specifying an additional term contributing to the residual
       bcs:
@@ -502,7 +480,7 @@ class StokesSolver(StokesSolverBase):
         normal_stress, buoyancy = self.approximation.free_surface_terms(
             self.solution_split[1],
             self.T,
-            self.solution_theta_split[self.eta_ind],
+            self.solution_split[self.eta_ind],
             **params_fs,
         )
         # Associate the free-surface index with the boundary id and buoyancy term
@@ -547,7 +525,7 @@ class StokesSolver(StokesSolverBase):
                     mass_term=mass_term_fs,
                     eq_attrs=eq_attrs,
                     quad_degree=self.quad_degree,
-                    scaling_factor=-self.theta,
+                    scaling_factor=-1.0,
                 )
             )
 
@@ -600,10 +578,10 @@ class ViscoelasticStokesSolver(StokesSolverBase):
         Firedrake function representing the deviatoric stress at the previous time step
       displacement:
         Firedrake function representing the total displacement
+      t:
+        Firedrake function for the simulation time in a coupled time integration
       dt:
-        Float quantifying the time step used in a coupled time integration
-      theta:
-        Float quantifying the implicit contribution in a coupled time integration
+        Firedrake function for the simulation time step in a coupled time integration
       additional_forcing_term:
         Firedrake form specifying an additional term contributing to the residual
       bcs:
