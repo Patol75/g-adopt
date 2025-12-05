@@ -42,19 +42,20 @@ outfile.write(q)
 
 # time period and time step
 T = 10.
-dt = 0.01
+time_step, time = time_objects(mesh, dt=0.01)  # Initial time step and time
+time_float = float(time)
 
 # Use G-ADOPT's GenericTransportSolver to advect the tracer. We use the diagonally
 # implicit DIRK33 Runge-Kutta method for timestepping. 'g' means that the boundary
 # conditions will be applied strongly by the solver.
-terms = ["advection", "diffusion"]
+terms = ["advection", "diffusion", "mass"]
 eq_attrs = {"diffusivity": kappa, "u": u}
 # strongly applied Dirichlet bcs on top and bottom
 g_left = conditional(y < 0.2, 0.0, 1.0)
 g_bottom = 0
 bcs = {3: {"g": g_bottom}, 1: {"g": g_left}}
 adv_diff_solver = GenericTransportSolver(
-    terms, q, dt, DIRK33, eq_attrs=eq_attrs, bcs=bcs, su_advection=True
+    terms, q, time, time_step, DIRK33, eq_attrs=eq_attrs, bcs=bcs, su_advection=True
 )
 
 # Get nubar (additional SU diffusion) for plotting
@@ -62,18 +63,18 @@ nubar = Function(Q).interpolate(adv_diff_solver.equation.su_nubar)
 nubar_outfile = VTKFile("advdof_DH219_skew_CG1_Pe"+str(Pe)+"_SU_nubar.pvd")
 nubar_outfile.write(nubar)
 
-t = 0.0
 step = 0
-while t < T - 0.5*dt:
+while time_float < T - 0.5 * float(time_step):
     # the solution reaches a steady state and finishes the solve when a  max no. of iterations is reached
     adv_diff_solver.solve()
 
     step += 1
-    t += dt
+    time.assign(time + time_step)
+    time_float = float(time)
 
     if step % 10 == 0:
         outfile.write(q)
-        print("t=", t)
+        print("t = ", time_float)
 
 # Write out integrated scalar for testing
 L2 = sqrt(assemble(q**2*dx))

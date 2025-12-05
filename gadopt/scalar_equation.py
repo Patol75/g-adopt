@@ -55,7 +55,7 @@ def advection_term(
             # On incoming boundaries, where dot(u, n) < 0, replace trial with bc["q"].
             F += eq.test * min_value(dot(u, eq.n), 0) * (bc["q"] - trial) * eq.ds(bc_id)
 
-    return -F
+    return F
 
 
 def diffusion_term(
@@ -122,22 +122,18 @@ def diffusion_term(
             # (q_ext = trial) and flux = kappa dq/dn = dot(n, dot(diff_tensor, grad(q)).
             F -= eq.test * bc["flux"] * eq.ds(bc_id)
 
-    return -F
+    return F
 
 
 def source_term(eq: Equation, trial: Argument | ufl.indexed.Indexed | Function) -> Form:
     r"""Scalar source term `s_T`."""
-    F = -dot(eq.test, eq.source) * eq.dx
-
-    return -F
+    return -dot(eq.test, eq.source) * eq.dx
 
 
 def sink_term(eq: Equation, trial: Argument | ufl.indexed.Indexed | Function) -> Form:
     r"""Scalar sink term `\alpha_T T`."""
     # Implement sink term implicitly at current time step.
-    F = dot(eq.test, eq.sink_coeff * trial) * eq.dx
-
-    return -F
+    return dot(eq.test, eq.sink_coeff * trial) * eq.dx
 
 
 def mass_term(eq: Equation, trial: Argument | ufl.indexed.Indexed | Function) -> Form:
@@ -153,13 +149,17 @@ def mass_term(eq: Equation, trial: Argument | ufl.indexed.Indexed | Function) ->
         The UFL form associated with the mass term of the equation.
 
     """
-    return dot(eq.test, Dt(trial)) * eq.dx
+    mass_scaling = getattr(eq, "mass_scaling", 1.0)
+
+    return mass_scaling * eq.test * Dt(trial) * eq.dx
 
 
 advection_term.required_attrs = {"u"}
 advection_term.optional_attrs = {"advective_velocity_scaling", "su_nubar"}
 diffusion_term.required_attrs = {"diffusivity"}
 diffusion_term.optional_attrs = {"reference_for_diffusion", "interior_penalty"}
+mass_term.required_attrs = set()
+mass_term.optional_attrs = {"mass_scaling"}
 source_term.required_attrs = {"source"}
 source_term.optional_attrs = set()
 sink_term.required_attrs = {"sink_coeff"}

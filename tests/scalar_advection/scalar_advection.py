@@ -68,7 +68,8 @@ u_outfile.write(u)
 # here we just use a ``Constant`` value. ::
 
 T = 2*pi
-dt = T/600.0
+time_step, time = time_objects(mesh, dt=T / 600.0)  # Initial time step and time
+time_float = float(time)
 q_in = Constant(1.0)
 
 # Use G-ADOPT's GenericTransportSolver to advect the tracer. We only include an
@@ -76,8 +77,9 @@ q_in = Constant(1.0)
 bc_in = {"q": q_in}
 bcs = {1: bc_in, 2: bc_in, 3: bc_in, 4: bc_in}
 eq_attrs = {"u": u}
+terms = ["advection", "mass"]
 adv_solver = GenericTransportSolver(
-    "advection", q, dt, DIRK33, eq_attrs=eq_attrs, bcs=bcs, su_advection=True
+    terms, q, time, time_step, DIRK33, eq_attrs=eq_attrs, bcs=bcs, su_advection=True
 )
 
 # Get nubar (additional SU diffusion) for plotting
@@ -86,17 +88,17 @@ nubar_outfile = VTKFile("CG_SUadv_nubar.pvd")
 nubar_outfile.write(nubar)
 
 # Here is the time stepping loop, with an output every 20 steps.
-t = 0.0
 step = 0
-while t < T - 0.5*dt:
+while time_float < T - 0.5 * float(time_step):
     adv_solver.solve()
 
     step += 1
-    t += dt
+    time.assign(time + time_step)
+    time_float = float(time)
 
     if step % 20 == 0:
         outfile.write(q)
-        print("t=", t)
+        log("t = ", time_float)
 
 # Finally, we display the normalised :math:`L^2` error, by comparing to the
 # initial condition. ::

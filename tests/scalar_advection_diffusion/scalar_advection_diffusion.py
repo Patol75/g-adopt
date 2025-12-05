@@ -55,18 +55,19 @@ outfile.write(q)
 
 # time period and time step
 T = 10.
-dt = T/600.0
+time_step, time = time_objects(mesh, dt=T / 600.0)  # Initial time step and time
+time_float = float(time)
 
 # Use G-ADOPT's GenericTransportSolver to advect the tracer. We use the diagonally
 # implicit DIRK33 Runge-Kutta method for timestepping. 'g' means that the boundary
 # conditions will be applied strongly by the solver.
-terms = ["advection", "diffusion"]
+terms = ["advection", "diffusion", "mass"]
 eq_attrs = {"diffusivity": kappa, "u": u}
 g_top = 1.0
 g_bottom = 0.0
 bcs = {3: {"g": g_bottom}, 4: {"g": g_top}}
 adv_diff_solver = GenericTransportSolver(
-    terms, q, dt, DIRK33, eq_attrs=eq_attrs, bcs=bcs, su_advection=True
+    terms, q, time, time_step, DIRK33, eq_attrs=eq_attrs, bcs=bcs, su_advection=True
 )
 
 # Get nubar (additional SU diffusion) for plotting
@@ -75,17 +76,17 @@ nubar_outfile = VTKFile("CG_SUadvdiff_nubar.pvd")
 nubar_outfile.write(nubar)
 
 # Here is the time stepping loop, with an output every 20 steps.
-t = 0.0
 step = 0
-while t < T - 0.5*dt:
+while time_float < T - 0.5 * float(time_step):
     adv_diff_solver.solve()
 
     step += 1
-    t += dt
+    time.assign(time + time_step)
+    time_float = float(time)
 
     if step % 10 == 0:
         outfile.write(q)
-        log("t=", t)
+        log("t = ", time_float)
 
 # Write out integrated scalar for testing
 L2 = sqrt(assemble(q**2*dx))

@@ -21,8 +21,7 @@ from ufl.core.expr import Expr
 
 from .approximations import BaseApproximation, BaseGIAApproximation
 from .equations import Equation
-from .free_surface_equation import free_surface_term
-from .free_surface_equation import mass_term as mass_term_fs
+from .free_surface_equation import free_surface_terms
 from .momentum_equation import compressible_viscoelastic_terms, stokes_terms
 from .solver_options_manager import SolverConfigurationMixin, ConfigType
 from .time_stepper import IrksomeIntegrator
@@ -546,8 +545,7 @@ class StokesSolver(StokesSolverBase):
                 Equation(
                     self.tests[eta_ind],
                     self.solution_space[eta_ind],
-                    free_surface_term,
-                    mass_term=mass_term_fs,
+                    free_surface_terms,
                     eq_attrs=eq_attrs,
                     quad_degree=self.quad_degree,
                     scaling_factor=-1.0,

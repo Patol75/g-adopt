@@ -20,13 +20,11 @@ from .equations import Equation
 from .utility import vertical_component
 
 
-def free_surface_term(
+def surface_velocity_term(
     eq: Equation, trial: fd.Argument | fd.ufl.indexed.Indexed | fd.Function
 ) -> fd.Form:
     r"""Free Surface term: u \dot n"""
-    F = -eq.buoyancy_scale * eq.test * fd.dot(eq.u, eq.n) * eq.ds(eq.boundary_id)
-
-    return -F
+    return -eq.buoyancy_scale * eq.test * fd.dot(eq.u, eq.n) * eq.ds(eq.boundary_id)
 
 
 def mass_term(
@@ -44,13 +42,14 @@ def mass_term(
         The UFL form associated with the mass term of the equation.
 
     """
-    return (
-        eq.test
-        * Dt(eq.buoyancy_scale * trial)
-        * vertical_component(eq.n)
-        * eq.ds(eq.boundary_id)
-    )
+    n_up = vertical_component(eq.n)
+
+    return eq.test * Dt(eq.buoyancy_scale * trial) * n_up * eq.ds(eq.boundary_id)
 
 
-free_surface_term.required_attrs = {"u", "buoyancy_scale", "boundary_id"}
-free_surface_term.optional_attrs = set()
+mass_term.required_attrs = set()
+mass_term.optional_attrs = set()
+surface_velocity_term.required_attrs = {"u", "buoyancy_scale", "boundary_id"}
+surface_velocity_term.optional_attrs = set()
+
+free_surface_terms = [mass_term, surface_velocity_term]

@@ -3,7 +3,6 @@
 # Streamline Upwind (SU) stabilisation.
 
 from gadopt import *
-from gadopt.time_stepper import IrksomeRadauIIA
 import numpy as np
 
 # We use a 40-by-40 mesh of squares.
@@ -68,7 +67,8 @@ u_outfile.write(u)
 # In general, this would be a ``Function``, but here we just use a ``Constant`` value. ::
 
 T = 2*pi
-dt = T/600.0  # Initial timestep - adaptive stepper will adjust this
+time_step, time = time_objects(mesh, dt=T / 600.0)  # Initial time step and time
+time_float = float(time)
 q_in = Constant(1.0)
 
 # Use G-ADOPT's GenericTransportSolver to advect the tracer with adaptive timestepping.
@@ -77,19 +77,27 @@ q_in = Constant(1.0)
 bc_in = {"q": q_in}
 bcs = {1: bc_in, 2: bc_in, 3: bc_in, 4: bc_in}
 eq_attrs = {"u": u}
+terms = ["advection", "mass"]
+timestepper_kwargs = {
+    "tableau_parameter": 3,  # RadauIIA order
+    "adaptive_parameters": {
+        "tol": 1e-3,  # Error tolerance per step
+        "dtmin": 1e-6,  # Minimum allowed dt
+        "dtmax": T / 100.0,  # Maximum allowed dt (reasonable fraction of total time)
+        "KI": 1 / 15,  # Integration gain
+        "KP": 0.13,  # Proportional gain
+    },
+}
 adv_solver = GenericTransportSolver(
-    "advection", q, dt, IrksomeRadauIIA,
-    eq_attrs=eq_attrs, bcs=bcs, su_advection=True,
-    timestepper_kwargs={
-        'order': 3,  # RadauIIA order
-        'adaptive_parameters': {
-            'tol': 1e-3,        # Error tolerance per step
-            'dtmin': 1e-6,      # Minimum allowed dt
-            'dtmax': T/100.0,   # Maximum allowed dt (reasonable fraction of total time)
-            'KI': 1/15,         # Integration gain
-            'KP': 0.13          # Proportional gain
-        }
-    }
+    terms,
+    q,
+    time,
+    time_step,
+    RadauIIA,
+    eq_attrs=eq_attrs,
+    bcs=bcs,
+    su_advection=True,
+    timestepper_kwargs=timestepper_kwargs,
 )
 
 # Get nubar (additional SU diffusion) for plotting
@@ -99,26 +107,24 @@ nubar_outfile.write(nubar)
 
 # Here is the time stepping loop with adaptive timestepping, with an output every 20 steps.
 # The timestep dt will be automatically adjusted by the adaptive stepper based on error estimates.
-t = 0.0
 step = 0
-dt_values = []  # Store all timestep values for testing
-while t < T:
+time_steps = []  # Store all timestep values for testing
+while time_float < T:
     # Set maximum dt to prevent overshooting final time
-    if hasattr(adv_solver.ts, 'dt_max'):
-        adv_solver.ts.dt_max = T - t
+    adv_solver.ts.dt_max = T - time
 
     # Advance with adaptive timestepping
-    adv_solver.solve(t=t)
+    adapt_error, adapt_dt = adv_solver.solve()
 
-    # Get the actual dt used by the adaptive stepper
-    dt_used = float(adv_solver.ts.dt_mesh_const)
-    dt_values.append(dt_used)
-    t += dt_used
     step += 1
+    # Get the actual dt used by the adaptive stepper
+    time_steps.append(adapt_dt)
+    time.assign(time + adapt_dt)
+    time_float = float(time)
 
     if step % 20 == 0:
         outfile.write(q)
-        print(f"t={t:.6f}, dt={dt_used:.6e}, step={step}")
+        print(f"t = {time_float:.6f}, dt = {adapt_dt:.6e}, step = {step}")
 
 # Finally, we display the normalised :math:`L^2` error, by comparing to the
 # initial condition. ::
@@ -131,4 +137,7 @@ print(final_error)
 # Save results for testing: final error, number of steps, and timestep statistics
 np.savetxt("final_error_adaptive.log", [final_error])
 np.savetxt("num_steps_adaptive.log", [step])
-np.savetxt("dt_stats_adaptive.log", [np.min(dt_values), np.max(dt_values), np.mean(dt_values)])
+np.savetxt(
+    "dt_stats_adaptive.log",
+    [np.min(time_steps), np.max(time_steps), np.mean(time_steps)],
+)

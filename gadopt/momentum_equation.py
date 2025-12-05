@@ -143,7 +143,7 @@ def viscosity_term(
         if "normal_stress" in bc:
             F += dot(eq.test, bc["normal_stress"] * eq.n) * eq.ds(bc_id)
 
-    return -F
+    return F
 
 
 def pressure_gradient_term(
@@ -160,7 +160,7 @@ def pressure_gradient_term(
         if "u" in bc or "un" in bc:
             F += dot(eq.test, eq.n) * eq.p * eq.ds(bc_id)
 
-    return -F
+    return F
 
 
 def divergence_term(
@@ -178,7 +178,7 @@ def divergence_term(
         elif "un" in bc:
             F -= eq.test * rho * (bc["un"] - dot(eq.n, eq.u)) * eq.ds(bc_id)
 
-    return -F
+    return F
 
 
 def momentum_source_term(
@@ -186,7 +186,7 @@ def momentum_source_term(
 ) -> Form:
     F = -dot(eq.test, eq.source) * eq.dx
 
-    return -F
+    return F
 
 
 def advection_hydrostatic_prestress_term(
@@ -222,7 +222,7 @@ def advection_hydrostatic_prestress_term(
     # viscous feedback at isostatic equibrium
     F -= div(eq.test) * eq.approximation.compressible_adv_hyd_pre(u_r) * eq.dx
 
-    return -F
+    return F
 
 
 viscosity_term.required_attrs = {"stress"}

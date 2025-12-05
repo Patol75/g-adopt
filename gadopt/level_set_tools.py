@@ -402,7 +402,7 @@ def reinitialisation_term(
         * eq.dx
     )
 
-    return sharpen_term + balance_term
+    return -sharpen_term - balance_term
 
 
 class LevelSetSolver(SolverConfigurationMixin):
@@ -584,7 +584,7 @@ class LevelSetSolver(SolverConfigurationMixin):
         """Sets up time integrators for advection and reinitialisation as required."""
         if self.advection:
             self.adv_solver = GenericTransportSolver(
-                "advection",
+                ["advection", "mass"],
                 self.solution,
                 self.time,
                 self.adv_kwargs["timestep"] / self.adv_kwargs["subcycles"],
@@ -599,8 +599,7 @@ class LevelSetSolver(SolverConfigurationMixin):
             reinitialisation_equation = Equation(
                 fd.TestFunction(self.solution_space),
                 self.solution_space,
-                reinitialisation_term,
-                mass_term=mass_term,
+                residual_terms=[mass_term, reinitialisation_term],
                 eq_attrs={
                     "level_set_grad": self.solution_grad,
                     "epsilon": self.reini_kwargs["epsilon"],
