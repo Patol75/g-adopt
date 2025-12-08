@@ -3,7 +3,6 @@
 # Streamline Upwind (SU) stabilisation.
 
 from gadopt import *
-from gadopt.time_stepper import DIRK33
 import numpy as np
 
 # We use a 40-by-40 mesh of squares.
@@ -98,7 +97,7 @@ while time_float < T - 0.5 * float(time_step):
 
     if step % 20 == 0:
         outfile.write(q)
-        log("t = ", time_float)
+        log(f"t = {time_float}")
 
 # Finally, we display the normalised :math:`L^2` error, by comparing to the
 # initial condition. ::

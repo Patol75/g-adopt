@@ -74,7 +74,7 @@ while time_float < T - 0.5 * float(time_step):
 
     if step % 10 == 0:
         outfile.write(q)
-        print("t = ", time_float)
+        log(f"t = {time_float}")
 
 # Write out integrated scalar for testing
 L2 = sqrt(assemble(q**2*dx))

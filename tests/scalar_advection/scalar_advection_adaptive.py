@@ -68,7 +68,6 @@ u_outfile.write(u)
 
 T = 2*pi
 time_step, time = time_objects(mesh, dt=T / 600.0)  # Initial time step and time
-time_float = float(time)
 q_in = Constant(1.0)
 
 # Use G-ADOPT's GenericTransportSolver to advect the tracer with adaptive timestepping.
@@ -81,10 +80,10 @@ terms = ["advection", "mass"]
 timestepper_kwargs = {
     "tableau_parameter": 3,  # RadauIIA order
     "adaptive_parameters": {
-        "tol": 1e-3,  # Error tolerance per step
-        "dtmin": 1e-6,  # Minimum allowed dt
-        "dtmax": T / 100.0,  # Maximum allowed dt (reasonable fraction of total time)
-        "KI": 1 / 15,  # Integration gain
+        "tol": 1e-5,  # Error tolerance per step
+        "dtmin": T / 1e5,  # Minimum allowed dt (reasonable fraction of total time)
+        "dtmax": T / 1e2,  # Maximum allowed dt (reasonable fraction of total time)
+        "KI": 1.0 / 15.0,  # Integration gain
         "KP": 0.13,  # Proportional gain
     },
 }
@@ -109,9 +108,10 @@ nubar_outfile.write(nubar)
 # The timestep dt will be automatically adjusted by the adaptive stepper based on error estimates.
 step = 0
 time_steps = []  # Store all timestep values for testing
-while time_float < T:
-    # Set maximum dt to prevent overshooting final time
-    adv_solver.ts.dt_max = T - time
+while float(time) < T:
+    if T - float(time) < float(time_step):
+        # Set maximum dt to prevent overshooting final time
+        adv_solver.ts.stepper.dt_max = T - float(time)
 
     # Advance with adaptive timestepping
     adapt_error, adapt_dt = adv_solver.solve()
@@ -120,14 +120,12 @@ while time_float < T:
     # Get the actual dt used by the adaptive stepper
     time_steps.append(adapt_dt)
     time.assign(time + adapt_dt)
-    time_float = float(time)
 
     if step % 20 == 0:
         outfile.write(q)
-        print(f"t = {time_float:.6f}, dt = {adapt_dt:.6e}, step = {step}")
+        print(f"t = {float(time):.6f}, dt = {adapt_dt:.6e}, step = {step}")
 
-# Finally, we display the normalised :math:`L^2` error, by comparing to the
-# initial condition. ::
+# Finally, we display the normalised `L^2` error, by comparing to the initial condition.
 
 L2_err = sqrt(assemble((q - q_init)*(q - q_init)*dx))
 L2_init = sqrt(assemble(q_init*q_init*dx))
@@ -137,7 +135,4 @@ print(final_error)
 # Save results for testing: final error, number of steps, and timestep statistics
 np.savetxt("final_error_adaptive.log", [final_error])
 np.savetxt("num_steps_adaptive.log", [step])
-np.savetxt(
-    "dt_stats_adaptive.log",
-    [np.min(time_steps), np.max(time_steps), np.mean(time_steps)],
-)
+np.savetxt("dt_stats_adaptive.log", time_steps)

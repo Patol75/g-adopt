@@ -95,7 +95,7 @@ def model(n, Pe=0.25, su_advection=True, do_write=False):
         step += 1
         time.assign(time + time_step)
         time_float = float(time)
-        log("t = ", time_float)
+        log(f"t = {time_float}")
 
         if do_write:
             outfile.write(q)
