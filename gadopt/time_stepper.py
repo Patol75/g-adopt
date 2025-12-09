@@ -149,7 +149,9 @@ class IrksomeIntegrator:
         # The mass term provided to `Equation` must employ the time derivative operator
         # `Dt`, allowing an equation-specific implementation of the time derivative
         # term.
-        if isinstance(equation, list):
+        if isinstance(equation, fd.ufl.form.Form):
+            F = equation
+        elif isinstance(equation, list):
             F = sum(eq.residual(sol) for eq, sol in zip(equation, fd.split(solution)))
         else:
             F = equation.residual(solution)
