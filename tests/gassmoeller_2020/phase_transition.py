@@ -22,11 +22,7 @@ def density_difference(p, crust):
 
 def write_output() -> None:
     temperature.project(apx.ref_profiles["T"] + T)
-    match apx.name:
-        case "BA" | "EBA" | "TALA" | "ALA":
-            density.project(apx.density(p, T, crust) - apx.ref_profiles["rho"])
-        case "ICA" | "HCA" | "PDA":
-            density.project(apx.density(p, T, crust) - apx.density(0.0, 0.0, 0.0))
+    density.project(apx.density(p, T, crust) - apx.density(0.0, 0.0, 0.0))
     dev_stress_sec_inv.project(sqrt(inner(shear_stress, shear_stress) / 2.0))
 
     pvd.write(
@@ -130,7 +126,7 @@ advection_solver = AdvectionSolver(
     crust, u, time, time_step, BackwardEuler, bcs=advection_bcs
 )
 if apx.name == "PDA":
-    delta_rho_old = density_difference(0.0, advection_solver.solution_old)
+    delta_rho_old = density_difference(0.0, advection_solver.solver.solution_old)
 else:
     delta_rho_old = None
 
@@ -151,9 +147,7 @@ stokes_solver = StokesSolver(
     T_old=energy_solver.irksome_integrator.solution_old if apx.name == "PDA" else 0.0,
     delta_rho=delta_rho,
     delta_rho_old=delta_rho_old,
-    # time=time if apx.name == "PDA" else None,
     time_step=time_step if apx.name == "PDA" else None,
-    # time_stepper=BackwardEuler if apx.name == "PDA" else None,
     strong_bcs=stokes_bcs,
     nullspace_kwargs={"closed": False, "rotational": False, "translations": [0, 1]},
 )

@@ -1,13 +1,6 @@
-import matplotlib.pyplot as plt
 from firedrake import *
 
-from gadopt import (
-    # BackwardEuler,
-    ImplicitMidpoint,
-    TimestepAdaptor,
-    get_boundary_ids,
-    time_objects,
-)
+from gadopt import ImplicitMidpoint, TimestepAdaptor, get_boundary_ids, time_objects
 
 from approximations_solvers import Approximation, EnergySolver, StokesSolver
 
@@ -20,11 +13,7 @@ def calculate_diagnostics() -> None:
 
 def write_output() -> None:
     temperature.project(apx.ref_profiles["T"] + T)
-    match apx.name:
-        case "BA" | "EBA" | "TALA" | "ALA":
-            density.project(apx.density(p, T, 0.0) - apx.ref_profiles["rho"])
-        case "ICA" | "HCA" | "PDA":
-            density.project(apx.density(p, T, 0.0) - apx.density(0.0, 0.0, 0.0))
+    density.project(apx.density(p, T, 0.0) - apx.density(0.0, 0.0, 0.0))
 
     pvd.write(
         *stokes.subfunctions, temperature, density, time=float(time) / year_to_seconds
@@ -79,7 +68,9 @@ ref_profiles["rho"] = ref_state["rho"] * exp(
 ref_profiles["p"] = ref_state["p"] + ref_state["K"] * (
     ref_profiles["rho"] / ref_state["rho"] - 1.0
 )
-ref_profiles["alpha"] = ref_state["alpha"] * exp(-1.117979e-11 * ref_profiles["p"])
+ref_profiles["alpha"] = ref_state["alpha"] * exp(
+    -1.117979e-11 * (ref_profiles["p"] + p)
+)
 ref_profiles["T"] = ref_state["T"] * exp(
     ref_profiles["alpha"] * ref_state["g"] / ref_state["cp"] * depth
 )
@@ -106,9 +97,7 @@ stokes_solver = StokesSolver(
     apx,
     T=T,
     T_old=energy_solver.irksome_integrator.solution_old if apx.name == "PDA" else 0.0,
-    # time=time if apx.name == "PDA" else None,
     time_step=time_step if apx.name == "PDA" else None,
-    # time_stepper=BackwardEuler if apx.name == "PDA" else None,
     strong_bcs=stokes_bcs,
     nullspace_kwargs={
         "closed": True,
@@ -146,11 +135,6 @@ while float(time) < 4e8 * year_to_seconds:
     write_output()
     calculate_diagnostics()
 
-fig, ax = plt.subplots(constrained_layout=True)
-ax.set_xlim(1.5e8, 4e8)
-ax.set_ylim(2e5, 1.2e6)
-ax.plot(diag_time, heat_flux_top)
-ax.set_xlabel("Time")
-ax.set_ylabel("Top heat flux")
-ax.grid(which="both")
-plt.savefig(f"heat_flux_top_{apx.name}.pdf", bbox_inches="tight", dpi=300)
+np.savez(
+    f"diags_box_convection{apx.name}.pvd", time=diag_time, heat_flux_top=heat_flux_top
+)

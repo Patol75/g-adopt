@@ -39,11 +39,7 @@ def effective_viscosity(u, p, C) -> Operator:
 
 def write_output() -> None:
     temperature.project(apx.ref_profiles["T"] + T)
-    match apx.name:
-        case "BA" | "EBA" | "TALA" | "ALA":
-            density.project(apx.density(p, T, weak_layer) - apx.ref_profiles["rho"])
-        case "ICA" | "HCA" | "PDA":
-            density.project(apx.density(p, T, weak_layer) - apx.density(0.0, 0.0, 0.0))
+    density.project(apx.density(p, T, 0.0) - apx.density(0.0, 0.0, 0.0))
     viscosity.interpolate(viscosity_eff)
     shear_stress = apx.shear_stress(u, viscosity_eff)
     dev_stress_sec_inv.interpolate(sqrt(inner(shear_stress, shear_stress) / 2.0))

@@ -4,6 +4,7 @@ from ufl.algebra import Operator
 
 from gadopt import GenericTransportSolver, rigid_body_modes
 from gadopt.stokes_integrators import direct_stokes_solver_parameters
+from gadopt.time_stepper import IrksomeIntegrator
 from gadopt.transport_solver import direct_energy_solver_parameters
 from gadopt.utility import InteriorBC, upward_normal
 
@@ -19,7 +20,6 @@ class Approximation:
         ref_profiles:
             Dictionary of physical parameters and their reference depth-dependent
             profiles
-
     """
 
     def __init__(
@@ -76,8 +76,9 @@ class Approximation:
         """Calculates shear stress.
 
         The shear stress in mantle convection formulations should correspond to the
-        deviatoric part of the full stress tensor. We note that the below implemention
-        via `dev` removes half of the tensor's trace in 2-D and a third of it in 3-D.
+        deviatoric part of the full stress tensor. We note that the below implementation
+        via `dev` removes half of the tensor's trace in 2-D and a third of it in 3-D,
+        which could differ from the formulation of certain benchmarks.
 
         Args:
             u:
@@ -93,24 +94,26 @@ class Approximation:
 
 
 class StokesSolver:
+    """Solver for the coupled Stokes system."""
+
     def __init__(
         self,
         solution: fd.Function,
         apx: Approximation,
-        viscosity=None,
-        T=0.0,
-        T_old=0.0,
-        delta_rho=0.0,
-        delta_rho_old=0.0,
-        time=None,
-        time_step=None,
-        time_stepper=None,
-        strong_bcs=None,
-        weak_bcs=None,
-        free_surface_id=None,
-        solver_parameters=None,
-        nullspace_kwargs=None,
-        transpose_nullspace_kwargs=None,
+        viscosity: float | Operator | None = None,
+        T: float | fd.Function = 0.0,
+        T_old: float | fd.Function = 0.0,
+        delta_rho: float | Operator = 0.0,
+        delta_rho_old: float | Operator = 0.0,
+        time: fd.Function | None = None,
+        time_step: fd.Function | None = None,
+        time_stepper: IrksomeIntegrator | None = None,
+        strong_bcs: list[fd.DirichletBC] | None = None,
+        weak_bcs: dict[str | float, dict[str, float]] | None = None,
+        free_surface_id: int | None = None,
+        solver_parameters: dict[str, str] = None,
+        nullspace_kwargs: dict[str, bool] | None = None,
+        transpose_nullspace_kwargs: dict[str, bool] | None = None,
     ) -> None:
         self.solution = solution
         self.set_solution_objects()
@@ -127,7 +130,9 @@ class StokesSolver:
 
         if self.free_surface_id is not None:
             strong_bcs = strong_bcs or []
-            strong_bcs.append(InteriorBC(self.solution_space[2], 0.0, free_surface_id))
+            strong_bcs.append(
+                InteriorBC(self.solution_space[2], 0.0, self.free_surface_id)
+            )
 
         self.set_weak_form()
         self.set_solver(
@@ -148,6 +153,7 @@ class StokesSolver:
         self.mesh = self.solution_space.mesh()
 
     def set_weak_form(self) -> None:
+        """Defines variables needed in the weak form."""
         self.tests = fd.TestFunctions(self.solution_space)
         self.n = fd.FacetNormal(self.mesh)
         self.up = upward_normal(self.mesh)
@@ -166,7 +172,7 @@ class StokesSolver:
             case "ICA" | "HCA" | "PDA":
                 self.rho = self.apx.density(0.0, self.T, self.delta_rho)
                 self.rho_full = self.rho
-                self.rho_g = (self.rho - self.apx.ref_profiles["rho"]) * self.g
+                self.rho_g = (self.rho_full - self.apx.ref_profiles["rho"]) * self.g
 
         match self.apx.name:
             case "ICA":
@@ -182,15 +188,19 @@ class StokesSolver:
 
     def set_solver(
         self,
-        time,
-        time_step,
-        time_stepper,
-        strong_bcs,
-        solver_parameters,
-        nullspace_kwargs,
-        transpose_nullspace_kwargs,
+        time: fd.Function | None = None,
+        time_step: fd.Function | None = None,
+        time_stepper: IrksomeIntegrator | None = None,
+        strong_bcs: list[fd.DirichletBC] | None = None,
+        solver_parameters: dict[str, str] = None,
+        nullspace_kwargs: dict[str, bool] | None = None,
+        transpose_nullspace_kwargs: dict[str, bool] | None = None,
     ):
-        def process_null_space_kwargs(kwargs):
+        """Sets up the solver for the weak form."""
+
+        def process_null_space_kwargs(
+            kwargs: dict[str, bool],
+        ) -> None | fd.MixedVectorSpaceBasis:
             return None if kwargs is None else self.null_space(**kwargs)
 
         solver_parameters = (
@@ -227,6 +237,7 @@ class StokesSolver:
             )
 
     def mass_equation(self) -> fd.Form:
+        "Variational form of the mass equation."
         u = self.solution_split[0]
         u_old = self.solution_old_split[0]
 
@@ -246,13 +257,14 @@ class StokesSolver:
             case "PDA":
                 mass_terms = (
                     (self.rho - self.rho_old) / self.time_step
-                    + fd.dot(u, fd.grad(self.rho))
+                    + fd.dot(u_old, fd.grad(self.rho))
                     + self.rho * fd.div(u)
                 )
 
         return self.tests[1] * mass_terms * self.dx
 
     def momentum_equation(self) -> fd.Form:
+        "Variational form of the momentum equation."
         p = self.solution_split[1]
 
         weak_form = (
@@ -268,6 +280,7 @@ class StokesSolver:
         return weak_form
 
     def free_surface_equation(self) -> fd.Form:
+        "Variational form of the free-surface equation."
         u, _, h = self.solution_split
 
         weak_form = (
@@ -280,6 +293,7 @@ class StokesSolver:
         return weak_form
 
     def residual(self) -> fd.Form:
+        """Residual form of the system."""
         residual = self.mass_equation() + self.momentum_equation()
         if self.free_surface_id is not None:
             residual += self.free_surface_equation()
@@ -293,16 +307,17 @@ class StokesSolver:
         translations: list[int] | None,
         boundary_id: int | str | None = None,
     ) -> fd.MixedVectorSpaceBasis:
+        """Defines a null space for the Stokes system."""
         V_nullspace = rigid_body_modes(
             self.solution_space[0], rotational=rotational, translations=translations
         )
 
         if closed:
-            if self.apx.name != "ALA":
+            if self.apx.name != "ALA" or boundary_id is None:
                 p_nullspace = fd.VectorSpaceBasis(constant=True, comm=self.mesh.comm)
             else:
                 pressure_space = fd.FunctionSpace(
-                    mesh=self.mesh, family=self.solution_space[1].ufl_element()
+                    mesh=self.mesh.unique(), family=self.solution_space[1].ufl_element()
                 )
                 test = fd.TestFunction(pressure_space)
                 kernel = fd.Function(pressure_space, name="Pressure null space")
@@ -323,6 +338,7 @@ class StokesSolver:
         return fd.MixedVectorSpaceBasis(self.solution_space, nullspace)
 
     def solve(self) -> None:
+        """Solves the current system."""
         if hasattr(self, "irksome_integrator"):
             self.irksome_integrator.advance()
         else:
@@ -331,6 +347,8 @@ class StokesSolver:
 
 
 class EnergySolver:
+    """Solver for the energy equation."""
+
     def __init__(
         self,
         solution: fd.Function,
@@ -338,12 +356,12 @@ class EnergySolver:
         u: fd.Function,
         time: fd.Function,
         time_step: fd.Function,
-        time_stepper,
-        viscosity=None,
-        delta_rho=0.0,
-        strong_bcs=None,
-        solver_parameters=None,
-        disable_shear_heating=False,
+        time_stepper: IrksomeIntegrator,
+        viscosity: float | Operator | None = None,
+        delta_rho: float | Operator = 0.0,
+        strong_bcs: list[fd.DirichletBC] | None = None,
+        solver_parameters: dict[str, str] = None,
+        disable_shear_heating: bool = False,
     ) -> None:
         self.solution = solution
         self.solution_space = self.solution.function_space()
@@ -359,6 +377,7 @@ class EnergySolver:
         self.set_solver(time, time_step, time_stepper, strong_bcs, solver_parameters)
 
     def set_weak_form(self) -> None:
+        """Defines variables needed in the weak form."""
         self.test = fd.TestFunction(self.solution_space)
         self.n = fd.FacetNormal(self.mesh)
         self.dx = fd.dx(degree=5)
@@ -375,7 +394,15 @@ class EnergySolver:
 
         self.shear_stress = self.apx.shear_stress(self.u, self.eta)
 
-    def set_solver(self, time, time_step, time_stepper, strong_bcs, solver_parameters):
+    def set_solver(
+        self,
+        time: fd.Function,
+        time_step: fd.Function,
+        time_stepper: IrksomeIntegrator,
+        strong_bcs: list[fd.DirichletBC] | None = None,
+        solver_parameters: dict[str, str] = None,
+    ):
+        """Sets up the solver for the weak form."""
         solver_parameters = (
             solver_parameters
             or {"ksp_converged_reason": None} | direct_energy_solver_parameters
@@ -391,6 +418,7 @@ class EnergySolver:
         )
 
     def residual(self, trial: fd.Function) -> fd.Form:
+        """Residual form of the equation."""
         weak_form = (
             self.test * self.rho * self.cp * Dt(trial)
             - fd.div(self.test * self.rho * self.cp * self.u) * trial
@@ -412,22 +440,24 @@ class EnergySolver:
         return weak_form
 
     def solve(self) -> None:
+        """Solves the current equation."""
         self.irksome_integrator.advance()
 
 
 class AdvectionSolver:
+    """Solver for an advection equation."""
+
     def __init__(
         self,
         solution: fd.Function,
         u: fd.Function,
         time: fd.Function,
         time_step: fd.Function,
-        time_stepper,
+        time_stepper: IrksomeIntegrator,
         bcs=None,
-        solver_parameters=None,
+        solver_parameters: dict[str, str] = None,
     ) -> None:
         self.solution = solution
-        self.solution_old = fd.Function(solution)
 
         self.solver = GenericTransportSolver(
             ["advection", "mass"],
@@ -435,12 +465,11 @@ class AdvectionSolver:
             time,
             time_step,
             time_stepper,
-            solution_old=self.solution_old,
             eq_attrs={"u": u},
             bcs=bcs,
             solver_parameters=solver_parameters,
         )
 
     def solve(self) -> None:
+        """Solves the current equation."""
         self.solver.solve()
-        self.solution_old.assign(self.solution)
