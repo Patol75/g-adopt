@@ -9,7 +9,7 @@ ax.set_ylabel("Top heat flux")
 ax.grid(which="both")
 
 for apx in ["BA", "EBA", "TALA", "ALA", "ICA", "HCA", "PDA"]:
-    diags = np.load(f"diags_box_convection{apx.name}.pvd")
+    diags = np.load(f"diags_box_convection_{apx}.npz")
     ax.plot(diags["time"], diags["heat_flux_top"], label=apx)
 
 plt.legend()

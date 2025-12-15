@@ -136,5 +136,5 @@ while float(time) < 4e8 * year_to_seconds:
     calculate_diagnostics()
 
 np.savez(
-    f"diags_box_convection{apx.name}.pvd", time=diag_time, heat_flux_top=heat_flux_top
+    f"diags_box_convection_{apx.name}", time=diag_time, heat_flux_top=heat_flux_top
 )
