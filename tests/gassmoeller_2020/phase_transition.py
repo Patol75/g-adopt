@@ -143,6 +143,7 @@ energy_solver = EnergySolver(
 stokes_solver = StokesSolver(
     stokes,
     apx,
+    PDA_u_old=apx.name == "PDA",
     T=T,
     T_old=energy_solver.irksome_integrator.solution_old if apx.name == "PDA" else 0.0,
     delta_rho=delta_rho,
@@ -153,7 +154,7 @@ stokes_solver = StokesSolver(
 )
 stokes_solver.solve()
 
-ts_adaptor = TimestepAdaptor(time_step, u, V, target_cfl=0.55)
+ts_adaptor = TimestepAdaptor(time_step, u, V)
 ts_adaptor.update_timestep()
 
 pvd = VTKFile(f"output_phase_transition_{apx.name}.pvd")

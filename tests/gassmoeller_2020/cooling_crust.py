@@ -12,17 +12,17 @@ from gadopt import (
 from approximations_solvers import Approximation, EnergySolver, StokesSolver
 
 
-def viscous_creep(C) -> Operator:
+def viscous_creep(C: Function) -> Operator:
     return 1e24 * (1.0 - C + 0.01 * C)
 
 
-def yield_strength(p) -> Operator:
+def yield_strength(p: Function) -> Operator:
     angle = 20.0 / 180.0 * pi
 
     return 2e7 * cos(angle) + p * sin(angle)
 
 
-def plastic_deformation(u, p) -> Operator:
+def plastic_deformation(u: Function, p: Function) -> Operator:
     strain_rate_dev = dev(apx.strain_rate(u))
     strain_rate_dev_sec_inv = sqrt(
         inner(strain_rate_dev, strain_rate_dev) / 2.0 + 1e-30
@@ -33,7 +33,7 @@ def plastic_deformation(u, p) -> Operator:
     )
 
 
-def effective_viscosity(u, p, C) -> Operator:
+def effective_viscosity(u: Function, p: Function, C: Function) -> Operator:
     return min_value(viscous_creep(C), plastic_deformation(u, p))
 
 

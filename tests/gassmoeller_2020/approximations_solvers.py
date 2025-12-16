@@ -100,6 +100,7 @@ class StokesSolver:
         self,
         solution: fd.Function,
         apx: Approximation,
+        PDA_u_old: bool = False,
         viscosity: float | Operator | None = None,
         T: float | fd.Function = 0.0,
         T_old: float | fd.Function = 0.0,
@@ -119,6 +120,7 @@ class StokesSolver:
         self.set_solution_objects()
 
         self.apx = apx
+        self.PDA_u_old = PDA_u_old
         self.eta = viscosity or self.apx.ref_profiles["eta"]
         self.T = T
         self.T_old = T_old
@@ -162,17 +164,16 @@ class StokesSolver:
 
         u, p = self.solution_split[:2]
 
-        self.g = -self.apx.ref_profiles["g"] * self.up
-
         match self.apx.name:
             case "BA" | "EBA" | "TALA" | "ALA":
                 self.rho = self.apx.ref_profiles["rho"]
                 self.rho_full = self.apx.density(p, self.T, self.delta_rho)
-                self.rho_g = (self.rho_full - self.rho) * self.g
             case "ICA" | "HCA" | "PDA":
                 self.rho = self.apx.density(0.0, self.T, self.delta_rho)
                 self.rho_full = self.rho
-                self.rho_g = (self.rho_full - self.apx.ref_profiles["rho"]) * self.g
+
+        self.g = -self.apx.ref_profiles["g"] * self.up
+        self.rho_g = (self.rho_full - self.apx.ref_profiles["rho"]) * self.g
 
         match self.apx.name:
             case "ICA":
@@ -257,7 +258,7 @@ class StokesSolver:
             case "PDA":
                 mass_terms = (
                     (self.rho - self.rho_old) / self.time_step
-                    + fd.dot(u_old, fd.grad(self.rho))
+                    + fd.dot(u_old if self.PDA_u_old else u, fd.grad(self.rho))
                     + self.rho * fd.div(u)
                 )
 
