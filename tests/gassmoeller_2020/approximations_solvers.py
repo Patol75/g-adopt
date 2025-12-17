@@ -248,7 +248,7 @@ class StokesSolver:
             case "TALA" | "ALA":
                 mass_terms = fd.div(self.rho * u)
             case "ICA":
-                mass_terms = fd.div(u) + self.rho / self.K * fd.dot(u, self.g)
+                mass_terms = fd.div(u) + self.rho / self.K * fd.dot(u_old, self.g)
             case "HCA":
                 mass_terms = (
                     fd.div(u)

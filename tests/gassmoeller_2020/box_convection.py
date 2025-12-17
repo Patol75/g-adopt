@@ -68,13 +68,11 @@ ref_profiles["rho"] = ref_state["rho"] * exp(
 ref_profiles["p"] = ref_state["p"] + ref_state["K"] * (
     ref_profiles["rho"] / ref_state["rho"] - 1.0
 )
-ref_profiles["alpha"] = ref_state["alpha"] * exp(
-    -1.117979e-11 * (ref_profiles["p"] + p)
-)
+ref_profiles["alpha"] = ref_state["alpha"] * exp(-1.117979e-11 * ref_profiles["p"])
 ref_profiles["T"] = ref_state["T"] * exp(
     ref_profiles["alpha"] * ref_state["g"] / ref_state["cp"] * depth
 )
-apx = Approximation("PDA", ref_state, ref_profiles)
+apx = Approximation("BA", ref_state, ref_profiles)
 
 energy_bcs = [
     DirichletBC(Q, 3700.0 - apx.ref_profiles["T"], boundary.bottom),
