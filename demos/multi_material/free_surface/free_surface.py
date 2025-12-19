@@ -38,7 +38,6 @@ V = VectorFunctionSpace(mesh, "Q", 2)  # Velocity function space (vector)
 W = FunctionSpace(mesh, "Q", 1)  # Pressure and surface-height function space (scalar)
 Z = MixedFunctionSpace([V, W, W])  # Stokes function space (mixed)
 K = FunctionSpace(mesh, "DQ", 2)  # Level-set function space (scalar, discontinuous)
-R = FunctionSpace(mesh, "R", 0)  # Real space (constants across the domain)
 
 stokes = Function(Z)  # A field over the mixed function space Z
 stokes.subfunctions[0].rename("Velocity")  # Firedrake function for velocity
@@ -46,7 +45,6 @@ stokes.subfunctions[1].rename("Pressure")  # Firedrake function for pressure
 stokes.subfunctions[2].rename("Free surface")  # Firedrake function for surface height
 u = split(stokes)[0]  # Indexed expression for velocity in the mixed space
 psi = Function(K, name="Level set")  # Firedrake function for level set
-time_step = Function(R).assign(1e11)  # Initial time step
 # -
 
 # We now initialise the level-set field. All we have to do is provide G-ADOPT with a
@@ -180,7 +178,7 @@ approximation = BoussinesqApproximation(
 # written for visualisation.
 
 myr_to_seconds = 1e6 * 365.25 * 8.64e4
-time_now = 0.0  # Initial time
+time_step, time = time_objects(mesh, dt=1e11)  # Initial time step and time
 # Frequency (based on simulation time) at which to output
 output_frequency = 0.8 * myr_to_seconds
 t_adapt = TimestepAdaptor(
@@ -207,7 +205,14 @@ stokes_bcs = {
 # Instantiate a solver object for the Stokes system and perform a solve to obtain
 # initial pressure and velocity fields. Providing the simulation's time step is required
 # to solve the free-surface balance.
-stokes_solver = StokesSolver(stokes, approximation, dt=time_step, bcs=stokes_bcs)
+stokes_solver = StokesSolver(
+    stokes,
+    approximation,
+    t=time,
+    dt=time_step,
+    timestepper=ImplicitMidpoint,
+    bcs=stokes_bcs,
+)
 stokes_solver.solve()
 
 # Instantiate a solver object for level-set advection and reinitialisation. G-ADOPT
@@ -215,7 +220,9 @@ stokes_solver.solve()
 # one.
 adv_kwargs = {"u": u, "timestep": time_step}
 reini_kwargs = {"epsilon": epsilon}
-level_set_solver = LevelSetSolver(psi, adv_kwargs=adv_kwargs, reini_kwargs=reini_kwargs)
+level_set_solver = LevelSetSolver(
+    psi, time, adv_kwargs=adv_kwargs, reini_kwargs=reini_kwargs
+)
 # -
 
 # We now set up our output. To do so, we create the output file as a ParaView Data file
@@ -224,7 +231,7 @@ level_set_solver = LevelSetSolver(psi, adv_kwargs=adv_kwargs, reini_kwargs=reini
 
 # +
 output_file = VTKFile("output.pvd")
-output_file.write(*stokes.subfunctions, psi, time=time_now / myr_to_seconds)
+output_file.write(*stokes.subfunctions, psi, time=float(time) / myr_to_seconds)
 
 plog = ParameterLog("params.log", mesh)
 plog.log_str("step time dt u_rms slab_tip_depth")
@@ -241,8 +248,8 @@ output_counter = 1  # A counter to keep track of outputting
 time_end = 60.0 * myr_to_seconds
 while True:
     # Update timestep
-    if time_end - time_now < output_frequency:
-        t_adapt.maximum_timestep = time_end - time_now
+    if time_end - float(time) < output_frequency:
+        t_adapt.maximum_timestep = time_end - float(time)
     t_adapt.update_timestep()
 
     # Advect and reinitialise level set
@@ -252,21 +259,23 @@ while True:
 
     # Increment iteration count and time
     step += 1
-    time_now += float(time_step)
+    time.assign(time + time_step)
 
     # Log diagnostics
     slab_tip_depth = (
         domain_dims[1] - min_max_height(psi, epsilon, side=1, mode="min")
     ) / 1e3
-    plog.log_str(f"{step} {time_now} {float(time_step)} {gd.u_rms()} {slab_tip_depth}")
+    plog.log_str(
+        f"{step} {float(time)} {float(time_step)} {gd.u_rms()} {slab_tip_depth}"
+    )
 
     # Write output
-    if time_now >= output_counter * output_frequency - 1e-16:
-        output_file.write(*stokes.subfunctions, psi, time=time_now / myr_to_seconds)
+    if float(time) >= output_counter * output_frequency - 1e-16:
+        output_file.write(*stokes.subfunctions, psi, time=float(time) / myr_to_seconds)
         output_counter += 1
 
     # Check if simulation has completed
-    if time_now >= time_end:
+    if float(time) >= time_end:
         plog.close()  # Close logging file
 
         # Checkpoint solution fields to disk
