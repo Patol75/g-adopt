@@ -37,6 +37,13 @@ from .utility import (
     vertical_component,
 )
 
+__all__ = (
+    "BoundaryNormalStressSolver",
+    "InternalVariableSolver",
+    "StokesSolver",
+    "ViscoelasticStokesSolver",
+)
+
 iterative_stokes_solver_parameters = {
     "mat_type": "matfree",
     "ksp_type": "preonly",
@@ -250,7 +257,6 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
         else:
             self.test = fd.TestFunction(self.solution_space)
             self.solution_split = (solution,)
-        self.tests = fd.TestFunctions(self.solution_space)
 
         self.rho_continuity = self.approximation.rho_continuity()
         self.equations = []  # G-ADOPT's Equation instances
@@ -384,6 +390,7 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
                 self.solution,
                 self.t,
                 self.dt,
+                additional_forcing_term=self.additional_forcing_term,
                 strong_bcs=self.strong_bcs,
                 solver_parameters=self.solver_parameters,
                 nullspace=self.nullspace,
@@ -394,7 +401,7 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
                 **self.timestepper_kwargs,
             )
         else:
-            F = -sum(
+            F = sum(
                 eq.residual(sol) for eq, sol in zip(self.equations, self.solution_split)
             )
             if self.additional_forcing_term is not None:
@@ -454,6 +461,10 @@ class StokesSolver(StokesSolverBase):
         Firedrake function for the simulation time in a coupled time integration
       dt:
         Firedrake function for the simulation time step in a coupled time integration
+      timestepper:
+        Runge-Kutta time integrator employing an explicit or implicit numerical scheme
+      timestepper_kwargs:
+        Dictionary of additional keyword arguments passed to the Irksome time stepper
       additional_forcing_term:
         Firedrake form specifying an additional term contributing to the residual
       bcs:

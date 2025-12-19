@@ -2,7 +2,7 @@ from test_free_surface import run_benchmark
 
 from gadopt import *
 from gadopt.equations import Equation
-from gadopt.free_surface_equation import free_surface_term, mass_term
+from gadopt.free_surface_equation import free_surface_terms
 
 
 class ExplicitFreeSurfaceModel:
@@ -50,11 +50,13 @@ class ExplicitFreeSurfaceModel:
         self.tau0 = Constant(2 * self.kk * self.mu / (self.rho0 * self.g))  # Characteristic time scale (dimensionless)
         log("tau0", self.tau0)
 
-        self.dt = Constant(dt_factor*self.tau0)  # timestep (dimensionless)
-        log("dt (dimensionless)", self.dt)
+        # Initial time step and time
+        self.time_step, self.time = time_objects(self.mesh, dt=dt_factor * self.tau0)
+        log("dt (dimensionless)", float(self.time_step))
 
-        self.time = Constant(0.0)
-        self.max_timesteps = round(10*self.tau0/self.dt)  # Simulation runs for 10 characteristic time scales so end state is close to being fully relaxed
+        # Simulation runs for 10 characteristic time scales so end state is close to
+        # being fully relaxed
+        self.max_timesteps = round(10 * self.tau0 / float(self.time_step))
         log("max_timesteps", self.max_timesteps)
 
         self.setup_bcs()
@@ -142,19 +144,16 @@ class ExplicitFreeSurfaceModel:
         }
 
         # Setup remaining free surface parameters needed for explicit coupling
+        # Initialise the separate free surface equation for explicit coupling
         eta_eq = Equation(
-            TestFunction(self.W),
-            self.W,
-            free_surface_term,
-            mass_term=mass_term,
-            eq_attrs=eq_attrs,
-        )  # Initialise the separate free surface equation for explicit coupling
+            TestFunction(self.W), self.W, free_surface_terms, eq_attrs=eq_attrs
+        )
         # Apply strong homogenous boundary to interior DOFs to prevent a singular matrix when only integrating the free surface equation over the top surface.
         eta_strong_bcs = [InteriorBC(self.W, 0., self.boundary.top)]
 
         # Set up a timestepper for the free surface, here we use a first order backward Euler method following Kramer et al. 2012
         self.eta_timestepper = BackwardEuler(
-            eta_eq, self.eta, self.dt, strong_bcs=eta_strong_bcs
+            eta_eq, self.eta, self.time, self.time_step, strong_bcs=eta_strong_bcs
         )
 
     def update_analytical_free_surfaces(self):
@@ -164,14 +163,14 @@ class ExplicitFreeSurfaceModel:
 
     def calculate_error(self):
         local_error = assemble(pow(self.eta-self.eta_analytical, 2)*self.ds(self.boundary.top))
-        self.error += local_error*self.dt
+        self.error += local_error * float(self.time_step)
 
     def calculate_final_error(self):
         self.final_error = pow(self.error, 0.5)/self.L0
 
     def setup_output_file(self):
         self.output_file = VTKFile(
-            f"{self.name}_freesurface_D{float(self.D / self.L0)}_mu{float(self.mu)}_nx{self.nx}_dt{float(self.dt / self.tau0)}tau.pvd"
+            f"{self.name}_freesurface_D{float(self.D / self.L0)}_mu{float(self.mu)}_nx{self.nx}_dt{float(self.time_step / self.tau0)}tau.pvd"
         )
 
     def write_file(self):
@@ -187,7 +186,7 @@ class ExplicitFreeSurfaceModel:
         for timestep in range(1, self.max_timesteps+1):
             self.advance_timestep()
 
-            self.time.assign(self.time + self.dt)
+            self.time.assign(self.time + self.time_step)
 
             # Calculate error
             self.update_analytical_free_surfaces()

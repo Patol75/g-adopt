@@ -6,6 +6,8 @@ import weakref
 from typing import Union
 from .utility import DEBUG, WARNING, log_level, log
 
+__all__ = ("DeleteParam",)
+
 
 def debug_print(class_name: str, string: str):
     """Print a debugging message.

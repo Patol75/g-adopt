@@ -170,13 +170,7 @@ energy_solver = EnergySolver(
 )
 
 stokes_solver = StokesSolver(
-    z,
-    approximation,
-    T,
-    t=time,
-    dt=time_step,
-    timestepper=BackwardEuler,
-    bcs=stokes_bcs,
+    z, approximation, T, t=time, dt=time_step, timestepper=BackwardEuler, bcs=stokes_bcs
 )
 
 # -

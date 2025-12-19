@@ -11,6 +11,8 @@ import firedrake as fd
 from .approximations import AnelasticLiquidApproximation
 from .utility import upward_normal
 
+__all__ = ("create_stokes_nullspace", "rigid_body_modes")
+
 
 def ala_right_nullspace(
     W: fd.functionspaceimpl.WithGeometry,

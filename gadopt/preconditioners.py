@@ -6,6 +6,8 @@ import firedrake as fd
 from firedrake.petsc import PETSc
 from .utility import InteriorBC
 
+__all__ = ("FreeSurfaceMassInvPC", "SPDAssembledPC")
+
 
 class FreeSurfaceMassInvPC(fd.MassInvPC):
     """Version of MassInvPC that includes free surface variables."""

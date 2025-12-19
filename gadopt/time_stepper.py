@@ -51,6 +51,8 @@ class IrksomeIntegrator:
             Type of stage formulation (e.g. `"deriv"`, `"dirk"`, `"explicit"`)
         solution_old:
             Firedrake function for the equation's solution at the previous timestep
+        additional_forcing_term:
+            Firedrake form specifying an additional term contributing to the residual
         strong_bcs:
             List of Firedrake boundary conditions (`DirichletBC` or `EquationBC`).
             `EquationBC` is only compatible with `bc_type="DAE"`.
@@ -121,7 +123,7 @@ class IrksomeIntegrator:
 
     def __init__(
         self,
-        equation: Equation,
+        equation: Equation | list[Equation] | fd.Form,
         solution: fd.Function,
         t: fd.Function,
         dt: fd.Function,
@@ -129,6 +131,7 @@ class IrksomeIntegrator:
         *,
         stage_type: str = "deriv",
         solution_old: fd.Function | None = None,
+        additional_forcing_term: fd.Form | None = None,
         strong_bcs: list[fd.DirichletBC] | None = None,
         bc_type: str = "DAE",
         solver_parameters: dict[str, Any] | None = None,
@@ -155,6 +158,8 @@ class IrksomeIntegrator:
             F = sum(eq.residual(sol) for eq, sol in zip(equation, fd.split(solution)))
         else:
             F = equation.residual(solution)
+        if additional_forcing_term is not None:
+            F += additional_forcing_term
 
         # Build kwargs for Irksome TimeStepper
         # Start with g-adopt's standard parameters

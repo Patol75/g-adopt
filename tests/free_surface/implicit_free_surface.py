@@ -13,6 +13,7 @@ class ImplicitFreeSurfaceModel(ExplicitFreeSurfaceModel):
     iterative = True
 
     def __init__(self, dt_factor, iterative_2d=False, **kwargs):
+        self.additional_forcing_term = None
         self.solver_parameters = "iterative" if iterative_2d else "direct"
         if not hasattr(self, "solver_parameters_extra"):
             self.solver_parameters_extra = None
@@ -53,8 +54,10 @@ class ImplicitFreeSurfaceModel(ExplicitFreeSurfaceModel):
             self.z,
             self.approximation,
             self.T,
-            dt=self.dt,
-            theta=0.5,
+            t=self.time,
+            dt=self.time_step,
+            timestepper=ImplicitMidpoint,
+            additional_forcing_term=self.additional_forcing_term,
             bcs=self.stokes_bcs,
             solver_parameters=self.solver_parameters,
             solver_parameters_extra=self.solver_parameters_extra,
@@ -65,7 +68,7 @@ class ImplicitFreeSurfaceModel(ExplicitFreeSurfaceModel):
 
     def calculate_error(self):
         local_error = assemble(pow(self.stokes_vars[2]-self.eta_analytical, 2)*self.ds(self.boundary.top))
-        self.error += local_error*self.dt
+        self.error += local_error * float(self.time_step)
 
     def write_file(self):
         self.output_file.write(self.stokes_vars[0], self.stokes_vars[1], self.stokes_vars[2], self.eta_analytical)

@@ -42,20 +42,16 @@ class TopBottomImplicitFreeSurfaceModel(ImplicitFreeSurfaceModel):
         self.stokes_bcs[self.boundary.bottom] = {"free_surface": {"RaFS": -1}}
 
     def setup_solver(self):
-        super().setup_solver()
-
         if self.solver_parameters == "iterative":
             # Schur complement splitting leads to a nullspace in the velocity block.
             # Adding a small absorption term bringing the vertical velocity to zero
             # removes this nullspace and does not affect convergence provided that this
             # term is small compared with the overall numerical error.
-            self.stokes_solver.additional_forcing_term = (
-                self.penalty
-                * self.stokes_solver.tests[0][1]
-                * self.stokes_solver.solution_split[0][1]
-                * dx
+            self.additional_forcing_term = (
+                self.penalty * TestFunctions(self.Z)[0][1] * split(self.z)[0][1] * dx
             )
-            self.stokes_solver.set_solver()
+
+        super().setup_solver()
 
     def update_analytical_free_surfaces(self):
         super().update_analytical_free_surfaces()
@@ -66,7 +62,7 @@ class TopBottomImplicitFreeSurfaceModel(ImplicitFreeSurfaceModel):
     def calculate_error(self):
         super().calculate_error()
         zeta_local_error = assemble(pow(self.stokes_vars[3]-self.zeta_analytical, 2)*self.ds(self.boundary.bottom))
-        self.zeta_error += zeta_local_error*self.dt
+        self.zeta_error += zeta_local_error * float(self.time_step)
 
     def calculate_final_error(self):
         super().calculate_final_error()
