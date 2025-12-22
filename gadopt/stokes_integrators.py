@@ -24,7 +24,7 @@ from .equations import Equation
 from .free_surface_equation import free_surface_terms
 from .momentum_equation import compressible_viscoelastic_terms, stokes_terms
 from .solver_options_manager import SolverConfigurationMixin, ConfigType
-from .time_stepper import IrksomeIntegrator
+from .time_stepper import ImplicitMidpoint, IrksomeIntegrator
 from .utility import (
     DEBUG,
     INFO,
@@ -578,6 +578,17 @@ class StokesSolver(StokesSolverBase):
             # Update mass inverse preconditioner
             self.add_to_solver_config({"fieldsplit_1": {"pc_python_type": "gadopt.FreeSurfaceMassInvPC"}})
         self.add_to_solver_config(solver_extras)
+
+    def solve(self):
+        super().solve()
+
+        if self.timestepper is ImplicitMidpoint and self.free_surface_map:
+            for i, (sol, sol_old) in enumerate(
+                zip(self.solution.subfunctions, self.ts.solution_old.subfunctions)
+            ):
+                if i == 2:
+                    break
+                self.solution.subfunctions[i].assign((sol + sol_old) / 2.0)
 
     def force_on_boundary(self, subdomain_id: int | str, **kwargs) -> fd.Function:
         """Computes the force acting on a boundary.
