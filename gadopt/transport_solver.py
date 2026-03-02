@@ -89,6 +89,9 @@ class GenericTransportBase(SolverConfigurationMixin, abc.ABC):
       timestepper_kwargs:
         Dictionary of additional keyword arguments passed to the timestepper constructor.
         Useful for parameterised schemes (e.g., {'order': 5} for IrksomeRadauIIA)
+      timestepper_kwargs:
+        Dictionary of additional keyword arguments passed to the timestepper constructor.
+        Useful for parameterised schemes (e.g., {'order': 5} for IrksomeRadauIIA)
       su_advection:
         Boolean activating the streamline-upwind stabilisation scheme when using
         continuous finite elements
@@ -98,6 +101,7 @@ class GenericTransportBase(SolverConfigurationMixin, abc.ABC):
     terms_mapping = {
         "advection": scalar_eq.advection_term,
         "diffusion": scalar_eq.diffusion_term,
+        "mass": scalar_eq.mass_term,
         "mass": scalar_eq.mass_term,
         "sink": scalar_eq.sink_term,
         "source": scalar_eq.source_term,
@@ -117,12 +121,14 @@ class GenericTransportBase(SolverConfigurationMixin, abc.ABC):
         solver_parameters: ConfigType | str | None = None,
         solver_parameters_extra: ConfigType | None = None,
         timestepper_kwargs: dict[str, Any] | None = None,
+        timestepper_kwargs: dict[str, Any] | None = None,
         su_advection: bool = False,
     ) -> None:
         self.solution = solution
         self.t = t
         self.dt = dt
         self.timestepper = timestepper
+        self.timestepper_kwargs = timestepper_kwargs or {}
         self.timestepper_kwargs = timestepper_kwargs or {}
         self.solution_old = solution_old or Function(solution)
         self.eq_attrs = eq_attrs
@@ -269,6 +275,7 @@ class GenericTransportSolver(GenericTransportBase):
         | --------- | --------------------- | ----------------------------------------- |
         | advection | u                     | advective_velocity_scaling, su_nubar      |
         | diffusion | diffusivity           | reference_for_diffusion, interior_penalty |
+        | mass      | diffusivity           | mass_scaling                              |
         | source    | source                |                                           |
         | sink      | sink_coeff            |                                           |
 
@@ -292,6 +299,9 @@ class GenericTransportSolver(GenericTransportBase):
       solver_parameters:
         Dictionary of solver parameters or a string specifying a default configuration
         provided to PETSc
+      timestepper_kwargs:
+        Dictionary of additional keyword arguments passed to the timestepper constructor.
+        Useful for parameterized schemes (e.g., {'order': 5} for IrksomeRadauIIA)
       timestepper_kwargs:
         Dictionary of additional keyword arguments passed to the timestepper constructor.
         Useful for parameterized schemes (e.g., {'order': 5} for IrksomeRadauIIA)
@@ -355,6 +365,9 @@ class EnergySolver(GenericTransportBase):
       timestepper_kwargs:
         Dictionary of additional keyword arguments passed to the timestepper constructor.
         Useful for parameterized schemes (e.g., {'order': 5} for IrksomeRadauIIA)
+      timestepper_kwargs:
+        Dictionary of additional keyword arguments passed to the timestepper constructor.
+        Useful for parameterized schemes (e.g., {'order': 5} for IrksomeRadauIIA)
       su_advection:
         Boolean activating the streamline-upwind stabilisation scheme when using
         continuous finite elements
@@ -387,6 +400,7 @@ class EnergySolver(GenericTransportBase):
         self.eq_attrs |= {
             "advective_velocity_scaling": rho_cp,
             "diffusivity": self.approximation.kappa(),
+            "mass_scaling": rho_cp,
             "mass_scaling": rho_cp,
             "reference_for_diffusion": self.approximation.Tbar,
             "sink_coeff": self.approximation.linearized_energy_sink(self.u),
@@ -428,7 +442,7 @@ class DiffusiveSmoothingSolver(GenericTransportSolver):
         bcs: dict[int, dict[str, int | float]] | None = None,
         solver_parameters: dict[str, str | float] | None = None,
         integration_quad_degree: int | None = None,
-        **kwargs
+        **kwargs,
     ):
         # Extract function space from solution
         function_space = solution.function_space()
@@ -440,7 +454,7 @@ class DiffusiveSmoothingSolver(GenericTransportSolver):
 
         # Initialise the parent GenericTransportSolver
         super().__init__(
-            "diffusion",
+            ["diffusion", "mass"],
             solution,
             t,
             dt,
@@ -449,6 +463,7 @@ class DiffusiveSmoothingSolver(GenericTransportSolver):
             bcs=bcs,
             solver_parameters=solver_parameters,
             **kwargs,
+            **kwargs,
         )
 
     def _calculate_diffusive_time_step(
@@ -456,7 +471,7 @@ class DiffusiveSmoothingSolver(GenericTransportSolver):
         function_space: FunctionSpace,
         wavelength: Number,
         K: Function | Number,
-        integration_quad_degree: int | None
+        integration_quad_degree: int | None,
     ) -> Constant:
         """Calculate the diffusive time step based on wavelength and diffusivity."""
         mesh = function_space.mesh()
@@ -469,12 +484,11 @@ class DiffusiveSmoothingSolver(GenericTransportSolver):
             integration_quad_degree = 2 * p + 1
 
         # For anisotropic diffusion, use average diffusivity
-        if hasattr(K, 'ufl_shape') and len(K.ufl_shape) == 2:
+        if hasattr(K, "ufl_shape") and len(K.ufl_shape) == 2:
             # Tensor diffusivity (2D tensor, e.g., (2,2) or (3,3))
-            K_avg = (
-                assemble(sqrt(inner(K, K)) * dx(mesh, degree=integration_quad_degree)) /
-                assemble(Constant(1) * dx(mesh, degree=integration_quad_degree))
-            )
+            K_avg = assemble(
+                sqrt(inner(K, K)) * dx(mesh, degree=integration_quad_degree)
+            ) / assemble(Constant(1) * dx(mesh, degree=integration_quad_degree))
         else:
             # Scalar diffusivity (Number, Constant, or scalar Function)
             K_avg = K

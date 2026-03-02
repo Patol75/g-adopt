@@ -377,7 +377,9 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
                 )
 
             elif INFO >= log_level:
-                self.add_to_solver_config({"fieldsplit_1": {"ksp_converged_reason": None}})
+                self.add_to_solver_config(
+                    {"fieldsplit_1": {"ksp_converged_reason": None}}
+                )
 
         self.add_to_solver_config(solver_extras)
         self.register_update_callback(self.set_solver)
@@ -502,6 +504,7 @@ class StokesSolver(StokesSolverBase):
 
         self.eta_ind = 2
         self.free_surface_map = {}
+        self.free_surface_equations = []
         super().__init__(solution, approximation, **kwargs)
 
     def set_free_surface_boundary(
@@ -550,7 +553,8 @@ class StokesSolver(StokesSolverBase):
             )
 
         for bc_id, (eta_ind, buoyancy) in self.free_surface_map.items():
-            eq_attrs = {"boundary_id": bc_id, "buoyancy_scale": buoyancy, "u": u}
+            mass_term, surface_velocity_term = free_surface_terms
+            eq_attrs = {"boundary_id": bc_id, "buoyancy_scale": buoyancy}
 
             self.equations.append(
                 Equation(
@@ -563,6 +567,16 @@ class StokesSolver(StokesSolverBase):
                 )
             )
 
+    def set_form(self) -> None:
+        super().set_form()
+
+        for eq, sol, sol_old in zip(
+            self.free_surface_equations,
+            self.solution_split[2:],
+            self.solution_old_split[2:],
+        ):
+            self.F += eq.residual((sol - sol_old) / self.dt)
+
     def set_solver_options(
         self, solver_preset: ConfigType | None, solver_extras: ConfigType | None
     ) -> None:
@@ -574,9 +588,13 @@ class StokesSolver(StokesSolverBase):
 
             # Gather pressure and free surface fields for Schur complement solve
             fields_ind = ",".join(map(str, range(1, len(self.solution_split))))
-            self.add_to_solver_config({"pc_fieldsplit_0_fields": "0", "pc_fieldsplit_1_fields": fields_ind})
+            self.add_to_solver_config(
+                {"pc_fieldsplit_0_fields": "0", "pc_fieldsplit_1_fields": fields_ind}
+            )
             # Update mass inverse preconditioner
-            self.add_to_solver_config({"fieldsplit_1": {"pc_python_type": "gadopt.FreeSurfaceMassInvPC"}})
+            self.add_to_solver_config(
+                {"fieldsplit_1": {"pc_python_type": "gadopt.FreeSurfaceMassInvPC"}}
+            )
         self.add_to_solver_config(solver_extras)
 
     def solve(self):
@@ -665,9 +683,10 @@ class ViscoelasticStokesSolver(StokesSolverBase):
     ) -> None:
 
         warn(
-            '''This solver is being phased out of G-ADOPT. We recommend using
+            """This solver is being phased out of G-ADOPT. We recommend using
         `InternalVariableSolver` for viscoelastic applications in G-ADOPT.
-        ''')
+        """
+        )
 
         self.stress_old = stress_old  # Deviatoric stress from previous time step
         self.displacement = displacement  # Total displacement
@@ -677,7 +696,9 @@ class ViscoelasticStokesSolver(StokesSolverBase):
         # Scaling factor for the previous stress
         self.stress_scale = self.approximation.prefactor_prestress(self.dt)
 
-    def set_free_surface_boundary(self, params_fs: dict[str, int | bool], bc_id: int | str) -> Expr:
+    def set_free_surface_boundary(
+        self, params_fs: dict[str, int | bool], bc_id: int | str
+    ) -> Expr:
         # First, make the displacement term implicit by incorporating the unknown
         # `incremental displacement' (u) that we are solving for. Then, calculate the
         # free surface stress term. This is also referred to as the Hydrostatic
@@ -834,15 +855,16 @@ class InternalVariableSolver(StokesSolverBase):
         normal_stress = params_fs.get("normal_stress", 0.0)
         # Add free surface stress term. This is also referred to as the Hydrostatic
         # Prestress advection term in the GIA literature.
-        combined_normal_stress = normal_stress + self.approximation.hydrostatic_prestress_advection(
-            vertical_component(self.solution)
+        combined_normal_stress = (
+            normal_stress
+            + self.approximation.hydrostatic_prestress_advection(
+                vertical_component(self.solution)
+            )
         )
 
         return combined_normal_stress
 
-    def update_m(
-        self, m: fd.Function, maxwell_time: fd.Function | Expr
-    ) -> Expr:
+    def update_m(self, m: fd.Function, maxwell_time: fd.Function | Expr) -> Expr:
         """Calculates updated internal variable using Backward Euler formula
 
         Args:
@@ -855,7 +877,9 @@ class InternalVariableSolver(StokesSolverBase):
         Returns:
             UFL expression for the updated internal variable using Backward Euler
         """
-        m_new = (m + self.dt / maxwell_time * self.strain) / (1 + self.dt / maxwell_time)
+        m_new = (m + self.dt / maxwell_time * self.strain) / (
+            1 + self.dt / maxwell_time
+        )
         return m_new
 
     def solve(self) -> None:
@@ -975,7 +999,9 @@ class BoundaryNormalStressSolver(SolverConfigurationMixin):
                 "BoundaryNormalStressSolver: Pressure field is discontinuous. Using an equivalent continous lagrange element."
             )
             Q = fd.FunctionSpace(
-                self.p.function_space().mesh(), "Lagrange", self.p.function_space().ufl_element().degree()
+                self.p.function_space().mesh(),
+                "Lagrange",
+                self.p.function_space().ufl_element().degree(),
             )
         else:
             Q = fd.FunctionSpace(self.p.function_space().mesh(), self.p.ufl_element())

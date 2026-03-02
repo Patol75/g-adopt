@@ -1,22 +1,11 @@
 r"""Scalar terms (e.g. for temperature and salinity transport).
 
-All terms are considered as if they were on the right-hand side of the equation, leading
-to the following UFL expression returned by the `residual` method:
+All terms are considered as if they were on the left-hand side of the equation, leading
+to the following UFL expression returned by the `Equation`'s `residual` method:
 
 $$
-  (dq)/dt = sum "term.residual()"
+  (dq)/dt + F(q) = 0.
 $$
-
-This sign convention ensures compatibility with Thetis's time integrators. In general,
-however, we like to think about the terms as they are on the left-hand side. Therefore,
-in the residual methods below, we first sum the terms in the variable `F` as if they
-were on the left-hand side, i.e.
-
-$$
-  (dq)/dt + F(q) = 0,
-$$
-
-and then return `-F`.
 
 """
 
@@ -27,9 +16,7 @@ from .equations import Equation, interior_penalty_factor
 from .utility import is_continuous, normal_is_continuous
 
 
-def advection_term(
-    eq: Equation, trial: Argument | ufl.indexed.Indexed | Function
-) -> Form:
+def advection_term(eq: Equation, trial: Argument | Indexed | Function) -> Form:
     r"""Scalar advection term (non-conservative): u \dot \div(q)."""
     advective_velocity_scaling = getattr(eq, "advective_velocity_scaling", 1)
     u = advective_velocity_scaling * eq.u
@@ -58,9 +45,7 @@ def advection_term(
     return F
 
 
-def diffusion_term(
-    eq: Equation, trial: Argument | ufl.indexed.Indexed | Function
-) -> Form:
+def diffusion_term(eq: Equation, trial: Argument | Indexed | Function) -> Form:
     r"""Scalar diffusion term $-nabla * (kappa grad q)$.
 
     Using the symmetric interior penalty method, the weak form becomes
@@ -125,18 +110,18 @@ def diffusion_term(
     return F
 
 
-def source_term(eq: Equation, trial: Argument | ufl.indexed.Indexed | Function) -> Form:
+def source_term(eq: Equation, trial: Argument | Indexed | Function) -> Form:
     r"""Scalar source term `s_T`."""
     return -dot(eq.test, eq.source) * eq.dx
 
 
-def sink_term(eq: Equation, trial: Argument | ufl.indexed.Indexed | Function) -> Form:
+def sink_term(eq: Equation, trial: Argument | Indexed | Function) -> Form:
     r"""Scalar sink term `\alpha_T T`."""
     # Implement sink term implicitly at current time step.
     return dot(eq.test, eq.sink_coeff * trial) * eq.dx
 
 
-def mass_term(eq: Equation, trial: Argument | ufl.indexed.Indexed | Function) -> Form:
+def mass_term(eq: Equation, trial: Argument | Indexed | Function) -> Form:
     """UFL form for the mass term used in the time discretisation.
 
     Args:

@@ -1,4 +1,6 @@
+from irksome import Dt
 from test_free_surface import run_benchmark
+from ufl.indexed import Indexed
 
 from gadopt import *
 from gadopt.equations import Equation
@@ -21,15 +23,19 @@ class ExplicitFreeSurfaceModel:
         self.mesh.cartesian = cartesian
 
         # Set up function spaces - currently using the bilinear Q2Q1 element pair:
-        self.V = VectorFunctionSpace(self.mesh, "CG", 2)  # Velocity function space (vector)
+        self.V = VectorFunctionSpace(
+            self.mesh, "CG", 2
+        )  # Velocity function space (vector)
         self.W = FunctionSpace(self.mesh, "CG", 1)  # Pressure function space (scalar)
-        self.Q = FunctionSpace(self.mesh, "CG", 2)  # Temperature function space (scalar)
+        self.Q = FunctionSpace(
+            self.mesh, "CG", 2
+        )  # Temperature function space (scalar)
         self.setup_function_space()
 
         # Output function space information:
         log("Number of Velocity DOF:", self.V.dim())
         log("Number of Pressure DOF:", self.W.dim())
-        log("Number of Velocity and Pressure DOF:", self.V.dim()+self.W.dim())
+        log("Number of Velocity and Pressure DOF:", self.V.dim() + self.W.dim())
 
         self.setup_variables()
 
@@ -47,7 +53,9 @@ class ExplicitFreeSurfaceModel:
 
         # timestepping
         self.mu = Constant(1)  # Viscosity (dimensionless)
-        self.tau0 = Constant(2 * self.kk * self.mu / (self.rho0 * self.g))  # Characteristic time scale (dimensionless)
+        self.tau0 = Constant(
+            2 * self.kk * self.mu / (self.rho0 * self.g)
+        )  # Characteristic time scale (dimensionless)
         log("tau0", self.tau0)
 
         # Initial time step and time
@@ -83,12 +91,16 @@ class ExplicitFreeSurfaceModel:
         self.L = self.D  # Length of the domain in m
         self.L0 = self.D  # characteristic length scale for scaling the equations
         ny = self.nx
-        self.mesh = RectangleMesh(self.nx, ny, self.L/self.L0, self.D/self.L0)  # Rectangle mesh generated via firedrake
+        self.mesh = RectangleMesh(
+            self.nx, ny, self.L / self.L0, self.D / self.L0
+        )  # Rectangle mesh generated via firedrake
         self.boundary = get_boundary_ids(self.mesh)
         self.ds = ds  # Need this so that cylindrical case can overload this later with CombinedSurfaceMeasure
 
     def setup_function_space(self):
-        self.Z = MixedFunctionSpace([self.V, self.W])  # Mixed function space for velocity and pressure.
+        self.Z = MixedFunctionSpace(
+            [self.V, self.W]
+        )  # Mixed function space for velocity and pressure.
 
     def setup_variables(self):
         # Function to store the solutions:
@@ -101,29 +113,37 @@ class ExplicitFreeSurfaceModel:
         self.stokes_vars[1].rename("Pressure")
 
     def initialise_wavenumber(self):
-        lam_dimensional = self.D/2  # wavelength of load in m
-        self.lam = lam_dimensional/self.L0  # dimensionless lambda
+        lam_dimensional = self.D / 2  # wavelength of load in m
+        self.lam = lam_dimensional / self.L0  # dimensionless lambda
         self.kk = Constant(2 * pi / self.lam)  # wavenumber (dimensionless)
 
     def initialise_temperature(self):
         pass
 
     def initialise_approximation(self):
-        Ra = Constant(0)  # Rayleigh number, here we set this to zero as there are no bouyancy terms
+        Ra = Constant(
+            0
+        )  # Rayleigh number, here we set this to zero as there are no bouyancy terms
         self.approximation = BoussinesqApproximation(Ra)
 
     def initialise_free_surfaces(self):
-        self.F0 = Constant(1000 / self.L0)  # initial free surface amplitude (dimensionless)
-        self.eta.interpolate(self.F0 * cos(self.kk * self.X[0]))  # Initial free surface condition
+        self.F0 = Constant(
+            1000 / self.L0
+        )  # initial free surface amplitude (dimensionless)
+        self.eta.interpolate(
+            self.F0 * cos(self.kk * self.X[0])
+        )  # Initial free surface condition
         self.eta_analytical = Function(self.eta, name="eta analytical")
 
     def setup_bcs(self):
         # No normal flow except on the free surface
         self.stokes_bcs = {
-            self.boundary.top: {'normal_stress': self.rho0 * self.g * self.eta},  # Apply stress on free surface
-            self.boundary.bottom: {'un': 0},
-            self.boundary.left: {'un': 0},
-            self.boundary.right: {'un': 0},
+            self.boundary.top: {
+                "normal_stress": self.rho0 * self.g * self.eta
+            },  # Apply stress on free surface
+            self.boundary.bottom: {"un": 0},
+            self.boundary.left: {"un": 0},
+            self.boundary.right: {"un": 0},
         }
 
     def setup_nullspaces(self):
@@ -146,10 +166,13 @@ class ExplicitFreeSurfaceModel:
         # Setup remaining free surface parameters needed for explicit coupling
         # Initialise the separate free surface equation for explicit coupling
         eta_eq = Equation(
-            TestFunction(self.W), self.W, free_surface_terms, eq_attrs=eq_attrs
+            TestFunction(self.W),
+            self.W,
+            [mass_term, surface_velocity_term],
+            eq_attrs=eq_attrs,
         )
         # Apply strong homogenous boundary to interior DOFs to prevent a singular matrix when only integrating the free surface equation over the top surface.
-        eta_strong_bcs = [InteriorBC(self.W, 0., self.boundary.top)]
+        eta_strong_bcs = [InteriorBC(self.W, 0.0, self.boundary.top)]
 
         # Set up a timestepper for the free surface, here we use a first order backward Euler method following Kramer et al. 2012
         self.eta_timestepper = BackwardEuler(
@@ -159,14 +182,18 @@ class ExplicitFreeSurfaceModel:
     def update_analytical_free_surfaces(self):
         # Equation A.4 from Kramer et al., 2012. Here we have a simplified form assuming that the relaxation time scale,
         # tau = tau0 (see Equation A.7) which is valid for wavelengths << depth (e.g. see Table 2 from Kramer et al 2012).
-        self.eta_analytical.interpolate(exp(-self.time/self.tau0)*self.F0 * cos(self.kk * self.X[0]))
+        self.eta_analytical.interpolate(
+            exp(-self.time / self.tau0) * self.F0 * cos(self.kk * self.X[0])
+        )
 
     def calculate_error(self):
-        local_error = assemble(pow(self.eta-self.eta_analytical, 2)*self.ds(self.boundary.top))
+        local_error = assemble(
+            pow(self.eta - self.eta_analytical, 2) * self.ds(self.boundary.top)
+        )
         self.error += local_error * float(self.time_step)
 
     def calculate_final_error(self):
-        self.final_error = pow(self.error, 0.5)/self.L0
+        self.final_error = pow(self.error, 0.5) / self.L0
 
     def setup_output_file(self):
         self.output_file = VTKFile(
@@ -174,7 +201,9 @@ class ExplicitFreeSurfaceModel:
         )
 
     def write_file(self):
-        self.output_file.write(self.stokes_vars[0], self.stokes_vars[1], self.eta, self.eta_analytical)
+        self.output_file.write(
+            self.stokes_vars[0], self.stokes_vars[1], self.eta, self.eta_analytical
+        )
 
     def advance_timestep(self):
         # Solve Stokes sytem:
@@ -183,7 +212,7 @@ class ExplicitFreeSurfaceModel:
 
     def run_simulation(self):
         # Now perform the time loop:
-        for timestep in range(1, self.max_timesteps+1):
+        for timestep in range(1, self.max_timesteps + 1):
             self.advance_timestep()
 
             self.time.assign(self.time + self.time_step)

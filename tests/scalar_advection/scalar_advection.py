@@ -39,11 +39,18 @@ slot_left = 0.475
 slot_right = 0.525
 slot_top = 0.85
 
-bell = 0.25*(1+cos(pi*min_value(sqrt(pow(x-bell_x0, 2) + pow(y-bell_y0, 2))/bell_r0, 1.0)))
-cone = 1.0 - min_value(sqrt(pow(x-cone_x0, 2) + pow(y-cone_y0, 2))/cyl_r0, 1.0)
-slot_cyl = conditional(sqrt(pow(x-cyl_x0, 2) + pow(y-cyl_y0, 2)) < cyl_r0,
-                       conditional(And(And(x > slot_left, x < slot_right), y < slot_top),
-                       0.0, 1.0), 0.0)
+bell = 0.25 * (
+    1
+    + cos(
+        pi * min_value(sqrt(pow(x - bell_x0, 2) + pow(y - bell_y0, 2)) / bell_r0, 1.0)
+    )
+)
+cone = 1.0 - min_value(sqrt(pow(x - cone_x0, 2) + pow(y - cone_y0, 2)) / cyl_r0, 1.0)
+slot_cyl = conditional(
+    sqrt(pow(x - cyl_x0, 2) + pow(y - cyl_y0, 2)) < cyl_r0,
+    conditional(And(And(x > slot_left, x < slot_right), y < slot_top), 0.0, 1.0),
+    0.0,
+)
 
 # We then declare the inital condition of :math:`q` to be the sum of these fields.
 # Furthermore, we add 1 to this, so that the initial field lies between 1 and 2,
@@ -66,7 +73,7 @@ u_outfile.write(u)
 # condition, :math:`q_\mathrm{in}`.  In general, this would be a ``Function``, but
 # here we just use a ``Constant`` value. ::
 
-T = 2*pi
+T = 2 * pi
 time_step, time = time_objects(mesh, dt=T / 600.0)  # Initial time step and time
 time_float = float(time)
 q_in = Constant(1.0)
@@ -78,7 +85,7 @@ bcs = {1: bc_in, 2: bc_in, 3: bc_in, 4: bc_in}
 eq_attrs = {"u": u}
 terms = ["advection", "mass"]
 adv_solver = GenericTransportSolver(
-    terms, q, time, time_step, DIRK33, eq_attrs=eq_attrs, bcs=bcs, su_advection=True
+    ["advection", "mass"], q, dt, DIRK33, eq_attrs=eq_attrs, bcs=bcs, su_advection=True
 )
 
 # Get nubar (additional SU diffusion) for plotting
@@ -102,8 +109,8 @@ while time_float < T - 0.5 * float(time_step):
 # Finally, we display the normalised :math:`L^2` error, by comparing to the
 # initial condition. ::
 
-L2_err = sqrt(assemble((q - q_init)*(q - q_init)*dx))
-L2_init = sqrt(assemble(q_init*q_init*dx))
-print(L2_err/L2_init)
+L2_err = sqrt(assemble((q - q_init) * (q - q_init) * dx))
+L2_init = sqrt(assemble(q_init * q_init * dx))
+print(L2_err / L2_init)
 
-np.savetxt("final_error.log", [L2_err/L2_init])
+np.savetxt("final_error.log", [L2_err / L2_init])

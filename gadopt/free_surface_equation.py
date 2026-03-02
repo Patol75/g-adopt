@@ -1,16 +1,11 @@
 r"""This module contains the free surface terms.
 
-All terms implement the UFL residual as it would be on the RHS of the equation:
+All terms implement the UFL residual as it would be on the LHS of the equation:
 
-  dq/dt = \sum term
+$$
+dq / dt + F(q) = 0.
+$$
 
-This sign-convention is for compatibility with Thetis's time integrators. In general,
-however, we like to think about the terms as they are on the LHS. Therefore, in the
-function below, we assemble in `F` as it would be on the LHS:
-
-  dq/dt + F(q) = 0
-
-and at the very end return `-F`.
 """
 
 import firedrake as fd
@@ -27,10 +22,11 @@ def surface_velocity_term(
     return -eq.buoyancy_scale * eq.test * fd.dot(eq.u, eq.n) * eq.ds(eq.boundary_id)
 
 
-def mass_term(
-    eq: Equation, trial: fd.Argument | fd.ufl.indexed.Indexed | fd.Function
-) -> fd.Form:
-    r"""Mass term \int test * trial * ds for the free surface time discretisation.
+def mass_term(eq: Equation, trial: fd.Argument | Indexed | fd.Function) -> fd.Form:
+    r"""Mass term for the free surface theta-scheme time discretisation.
+
+    Note: This mass term does not use Irksome's `Dt` operator; `StokesSolver` manually
+    implements the time discretisation: `(eta - eta_old) / dt`.
 
     Args:
         eq:

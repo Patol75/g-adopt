@@ -20,6 +20,7 @@ import shapely as sl
 from mpi4py import MPI
 from numpy.testing import assert_allclose
 from ufl.core.expr import Expr
+from ufl.indexed import Indexed
 
 from .equations import Equation
 from .scalar_equation import mass_term
@@ -383,19 +384,21 @@ def assign_level_set_values(
 
 
 def reinitialisation_term(
-    eq: Equation, trial: fd.Argument | fd.ufl.indexed.Indexed | fd.Function
+    eq: Equation, trial: fd.Argument | Indexed | fd.Function
 ) -> fd.Form:
     """Term for the conservative level set reinitialisation equation.
 
-    Implements terms on the right-hand side of Equation 17 from
+    Implements terms of Equation 17 from Parameswaran and Mandal (2023) as expressed on
+    the left-hand side.
+
     Parameswaran, S., & Mandal, J. C. (2023).
     A stable interface-preserving reinitialization equation for conservative level set
     method.
     European Journal of Mechanics-B/Fluids, 98, 40-63.
     """
-    sharpen_term = -trial * (1 - trial) * (1 - 2 * trial) * eq.test * eq.dx
+    sharpen_term = trial * (1 - trial) * (1 - 2 * trial) * eq.test * eq.dx
     balance_term = (
-        eq.epsilon
+        -eq.epsilon
         * (1 - 2 * trial)
         * fd.sqrt(fd.inner(eq.level_set_grad, eq.level_set_grad))
         * eq.test

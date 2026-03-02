@@ -36,7 +36,7 @@ cases = {
     },
     f"{tests_path}/viscoplastic_case_DG": {"extra_checks": ["nu_top", "avg_t"]},
     f"{tests_path}/3d_weerdesteijn": {"extra_checks": ["uv_min"]},
-    f"{tests_path}/3d_spada": {"extra_checks": ["uv_min"]},
+    f"{tests_path}/3d_spada": {"extra_checks": ["disp_min", "disp_max"]},
     f"{tests_path}/3d_sphere_burgers": {"extra_checks": ["uv_min"]},
 }
 
@@ -64,7 +64,11 @@ def check_series(
     extra_checks,
 ):
     pd.testing.assert_series_equal(
-        actual[["u_rms"] + extra_checks], expected, check_names=False, **compare_params
+        actual[["u_rms"] + extra_checks],
+        expected,
+        check_names=False,
+        check_index_type=False,
+        **compare_params,
     )
 
     assert abs(actual.name - expected.name) <= convergence_tolerance

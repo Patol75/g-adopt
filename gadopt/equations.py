@@ -13,6 +13,7 @@ from typing import Any, Callable
 from warnings import warn
 
 import firedrake as fd
+from ufl.indexed import Indexed
 
 from .approximations import BaseApproximation, BaseGIAApproximation
 from .utility import CombinedSurfaceMeasure
@@ -48,7 +49,7 @@ class Equation:
 
     """
 
-    test: fd.Argument | fd.ufl.indexed.Indexed
+    test: fd.Argument | Indexed
     trial_space: fd.functionspaceimpl.WithGeometry
     residual_terms: InitVar[Callable | list[Callable]]
     _: KW_ONLY
