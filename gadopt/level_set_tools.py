@@ -405,7 +405,7 @@ def reinitialisation_term(
         * eq.dx
     )
 
-    return -sharpen_term - balance_term
+    return sharpen_term + balance_term
 
 
 class LevelSetSolver(SolverConfigurationMixin):
