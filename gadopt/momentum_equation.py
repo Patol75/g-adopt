@@ -164,12 +164,8 @@ def divergence_term(eq: Equation, trial: Argument | Indexed | Function) -> Form:
     return F
 
 
-def momentum_source_term(
-    eq: Equation, trial: Argument | ufl.indexed.Indexed | Function
-) -> Form:
-    F = -dot(eq.test, eq.source) * eq.dx
-
-    return F
+def momentum_source_term(eq: Equation, trial: Argument | Indexed | Function) -> Form:
+    return -dot(eq.test, eq.source) * eq.dx
 
 
 def hydrostatic_prestress_advection_and_buoyancy_term(

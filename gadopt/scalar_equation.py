@@ -11,6 +11,7 @@ $$
 
 from firedrake import *
 from irksome import Dt
+from ufl.indexed import Indexed
 
 from .equations import Equation, interior_penalty_factor
 from .utility import is_continuous, normal_is_continuous

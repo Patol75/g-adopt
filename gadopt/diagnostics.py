@@ -18,9 +18,7 @@ from collections.abc import Sequence
 from typing import Literal
 from collections import defaultdict
 
-__all__ = ["BaseDiagnostics", "GeodynamicalDiagnostics", "GIADiagnostics"]
-
-__all__ = ("GeodynamicalDiagnostics",)
+__all__ = ("BaseDiagnostics", "GeodynamicalDiagnostics", "GIADiagnostics")
 
 
 # Free functions to allow caching of attributes that may be common among

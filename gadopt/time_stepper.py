@@ -7,23 +7,9 @@ call the `advance` method to request a solver update.
 
 from abc import ABC, abstractmethod
 from typing import Any
-from typing import Any
 
 import firedrake as fd
-import firedrake as fd
 import numpy as np
-from irksome import MeshConstant, TimeStepper
-from irksome.ButcherTableaux import (
-    Alexander,
-    BackwardEuler,
-    ButcherTableau,
-    GaussLegendre,
-    LobattoIIIA,
-    LobattoIIIC,
-    PareschiRusso,
-    QinZhang,
-    RadauIIA,
-)
 from irksome import MeshConstant, TimeStepper
 from irksome.ButcherTableaux import (
     Alexander,
@@ -397,13 +383,9 @@ class AbstractRKScheme(ABC):
     @abstractmethod
     def a(cls):
         """Runge-Kutta matrix `a_{i,j}` of the Butcher tableau"""
-    def a(cls):
-        """Runge-Kutta matrix `a_{i,j}` of the Butcher tableau"""
 
     @property
     @abstractmethod
-    def b(cls):
-        """weights `b_{i}` of the Butcher tableau"""
     def b(cls):
         """weights `b_{i}` of the Butcher tableau"""
 
@@ -411,12 +393,9 @@ class AbstractRKScheme(ABC):
     @abstractmethod
     def c(cls):
         """nodes `c_{i}` of the Butcher tableau"""
-    def c(cls):
-        """nodes `c_{i}` of the Butcher tableau"""
 
     @property
     @abstractmethod
-    def cfl_coeff(cls):
     def cfl_coeff(cls):
         """CFL number of the scheme
 
@@ -435,10 +414,7 @@ class ERKEuler(AbstractRKScheme, ERKGeneric):
 
 class ERKLSPUM2(AbstractRKScheme, ERKGeneric):
     """ERKLSPUM2, 3-stage, 2nd order, explicit Runge-Kutta method
-class ERKLSPUM2(AbstractRKScheme, ERKGeneric):
-    """ERKLSPUM2, 3-stage, 2nd order, explicit Runge-Kutta method
 
-    From IMEX RK scheme (17) in Higueras et al. (2014).
     From IMEX RK scheme (17) in Higueras et al. (2014).
 
     Higueras et al (2014). Optimized strong stability preserving IMEX
@@ -458,20 +434,13 @@ class ERKLSPUM2(AbstractRKScheme, ERKGeneric):
 
 class ERKLPUM2(AbstractRKScheme, ERKGeneric):
     """ERKLPUM2, 3-stage, 2nd order, explicit Runge-Kutta method
-class ERKLPUM2(AbstractRKScheme, ERKGeneric):
-    """ERKLPUM2, 3-stage, 2nd order, explicit Runge-Kutta method
 
-    From IMEX RK scheme (20) in Higueras et al. (2014).
     From IMEX RK scheme (20) in Higueras et al. (2014).
 
     Higueras et al (2014). Optimized strong stability preserving IMEX
     Runge-Kutta methods. Journal of Computational and Applied Mathematics
     272(2014) 116-140. http://dx.doi.org/10.1016/j.cam.2014.05.011
     """
-
-    a = [[0, 0, 0], [1.0 / 2.0, 0, 0], [1.0 / 2.0, 1.0 / 2.0, 0]]
-    b = [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]
-    c = [0, 1.0 / 2.0, 1.0]
 
     a = [[0, 0, 0], [1.0 / 2.0, 0, 0], [1.0 / 2.0, 1.0 / 2.0, 0]]
     b = [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]
@@ -486,8 +455,6 @@ class ERKMidpoint(AbstractRKScheme, ERKGeneric):
     cfl_coeff = 1.0
 
 
-class SSPRK33(AbstractRKScheme, ERKGeneric):
-    r"""3rd order Strong Stability Preserving Runge-Kutta scheme, SSP(3,3).
 class SSPRK33(AbstractRKScheme, ERKGeneric):
     r"""3rd order Strong Stability Preserving Runge-Kutta scheme, SSP(3,3).
 
@@ -509,30 +476,10 @@ class SSPRK33(AbstractRKScheme, ERKGeneric):
 
     a = [[0, 0, 0], [1.0, 0, 0], [0.25, 0.25, 0]]
     b = [1.0 / 6.0, 1.0 / 6.0, 2.0 / 3.0]
-
-    a = [[0, 0, 0], [1.0, 0, 0], [0.25, 0.25, 0]]
-    b = [1.0 / 6.0, 1.0 / 6.0, 2.0 / 3.0]
     c = [0, 1.0, 0.5]
     cfl_coeff = 1.0
 
 
-class eSSPRK(AbstractRKScheme, ERKGeneric):
-    """Assemble explicit Runge-Kutta matrix based on non-zero entries."""
-
-    def __init_subclass__(cls):
-        cls.a.insert(0, [0.0] * (len(cls.a) + 1))
-        for row in cls.a:
-            row += [0.0] * (len(cls.a) - len(row))
-
-        super().__init_subclass__()
-
-
-class eSSPRKs3p3(eSSPRK):
-    """3rd order, 3-stage, explicit, strong-stability-preserving Runge-Kutta method.
-
-    This method has a nondecreasing-abscissa condition.
-    See Isherwood, Grant, and Gottlieb (2018, https://doi.org/10.1137/17M1143290).
-    """
 class eSSPRK(AbstractRKScheme, ERKGeneric):
     """Assemble explicit Runge-Kutta matrix based on non-zero entries."""
 
@@ -566,25 +513,11 @@ class eSSPRKs4p3(eSSPRK):
     """
 
     a = [[11 / 20], [11 / 32, 11 / 32], [55 / 288, 55 / 288, 11 / 36]]
-class eSSPRKs4p3(eSSPRK):
-    """3rd order, 4-stage, explicit, strong-stability-preserving Runge-Kutta method.
-
-    This method has a nondecreasing-abscissa condition.
-    See Isherwood, Grant, and Gottlieb (2018, https://doi.org/10.1137/17M1143290).
-    """
-
-    a = [[11 / 20], [11 / 32, 11 / 32], [55 / 288, 55 / 288, 11 / 36]]
     b = [0.24517906, 0.13774105, 0.22038567, 0.39669421]
     c = [0, 11 / 20, 11 / 16, 11 / 16]
     cfl_coeff = 20 / 11
 
 
-class eSSPRKs5p3(eSSPRK):
-    """3rd order, 5-stage, explicit, strong-stability-preserving Runge-Kutta method.
-
-    This method has a nondecreasing-abscissa condition.
-    See Isherwood, Grant, and Gottlieb (2018, https://doi.org/10.1137/17M1143290).
-    """
 class eSSPRKs5p3(eSSPRK):
     """3rd order, 5-stage, explicit, strong-stability-preserving Runge-Kutta method.
 
@@ -613,12 +546,6 @@ class eSSPRKs6p3(eSSPRK):
     This method has a nondecreasing-abscissa condition.
     See Isherwood, Grant, and Gottlieb (2018, https://doi.org/10.1137/17M1143290).
     """
-class eSSPRKs6p3(eSSPRK):
-    """3rd order, 6-stage, explicit, strong-stability-preserving Runge-Kutta method.
-
-    This method has a nondecreasing-abscissa condition.
-    See Isherwood, Grant, and Gottlieb (2018, https://doi.org/10.1137/17M1143290).
-    """
 
     a = [
         [0.28422072],
@@ -637,12 +564,6 @@ class eSSPRKs6p3(eSSPRK):
     cfl_coeff = 3.51839231
 
 
-class eSSPRKs7p3(eSSPRK):
-    """3rd order, 7-stage, explicit, strong-stability-preserving Runge-Kutta method.
-
-    This method has a nondecreasing-abscissa condition.
-    See Isherwood, Grant, and Gottlieb (2018, https://doi.org/10.1137/17M1143290).
-    """
 class eSSPRKs7p3(eSSPRK):
     """3rd order, 7-stage, explicit, strong-stability-preserving Runge-Kutta method.
 
@@ -677,12 +598,6 @@ class eSSPRKs7p3(eSSPRK):
     cfl_coeff = 4.28568865
 
 
-class eSSPRKs8p3(eSSPRK):
-    """3rd order, 8-stage, explicit, strong-stability-preserving Runge-Kutta method.
-
-    This method has a nondecreasing-abscissa condition.
-    See Isherwood, Grant, and Gottlieb (2018, https://doi.org/10.1137/17M1143290).
-    """
 class eSSPRKs8p3(eSSPRK):
     """3rd order, 8-stage, explicit, strong-stability-preserving Runge-Kutta method.
 
@@ -742,12 +657,6 @@ class eSSPRKs9p3(eSSPRK):
     This method has a nondecreasing-abscissa condition.
     See Isherwood, Grant, and Gottlieb (2018, https://doi.org/10.1137/17M1143290).
     """
-class eSSPRKs9p3(eSSPRK):
-    """3rd order, 9-stage, explicit, strong-stability-preserving Runge-Kutta method.
-
-    This method has a nondecreasing-abscissa condition.
-    See Isherwood, Grant, and Gottlieb (2018, https://doi.org/10.1137/17M1143290).
-    """
 
     a = [
         [0.16666667],
@@ -800,12 +709,6 @@ class eSSPRKs9p3(eSSPRK):
     cfl_coeff = 6.0
 
 
-class eSSPRKs10p3(eSSPRK):
-    """3rd order, 10-stage, explicit, strong-stability-preserving Runge-Kutta method.
-
-    This method has a nondecreasing-abscissa condition.
-    See Isherwood, Grant, and Gottlieb (2018, https://doi.org/10.1137/17M1143290).
-    """
 class eSSPRKs10p3(eSSPRK):
     """3rd order, 10-stage, explicit, strong-stability-preserving Runge-Kutta method.
 
@@ -888,22 +791,8 @@ class BackwardEuler(DIRKGeneric):
     """Backward Euler scheme using Irksome's built-in implementation."""
 
     butcher_tableau = BackwardEuler()
-class BackwardEuler(DIRKGeneric):
-    """Backward Euler scheme using Irksome's built-in implementation."""
-
-    butcher_tableau = BackwardEuler()
 
 
-class ImplicitMidpoint(DIRKGeneric):
-    """Implicit midpoint scheme using Irksome's GaussLegendre(1) implementation."""
-
-    butcher_tableau = GaussLegendre(1)
-
-
-class CrankNicolson(AbstractRKScheme, DIRKGeneric):
-    """2-stage, 2nd order, implicit Runge-Kutta method."""
-
-    a = [[0.0, 0.0], [0.5, 0.5]]
 class ImplicitMidpoint(DIRKGeneric):
     """Implicit midpoint scheme using Irksome's GaussLegendre(1) implementation."""
 
@@ -921,12 +810,9 @@ class CrankNicolson(AbstractRKScheme, DIRKGeneric):
 
 class DIRK22(AbstractRKScheme, DIRKGeneric):
     r"""2-stage, 2nd order, L-stable Diagonally Implicit Runge-Kutta method.
-class DIRK22(AbstractRKScheme, DIRKGeneric):
-    r"""2-stage, 2nd order, L-stable Diagonally Implicit Runge-Kutta method.
 
     This method has the Butcher tableau
 
-    $$
     $$
         \begin{array}{c|cc}
         \gamma &   \gamma &       0 \\
@@ -934,9 +820,7 @@ class DIRK22(AbstractRKScheme, DIRKGeneric):
                 &       1/2 &     1/2
         \end{array}
     $$
-    $$
 
-    with $`\gamma = (2 + \sqrt{2})/2$.
     with $`\gamma = (2 + \sqrt{2})/2$.
 
     From DIRK(2,3,2) IMEX scheme in Ascher et al. (1997)
@@ -949,22 +833,15 @@ class DIRK22(AbstractRKScheme, DIRKGeneric):
     gamma = (2.0 + np.sqrt(2.0)) / 2.0
     a = [[gamma, 0], [1 - gamma, gamma]]
     b = [1 - gamma, gamma]
-
-    gamma = (2.0 + np.sqrt(2.0)) / 2.0
-    a = [[gamma, 0], [1 - gamma, gamma]]
-    b = [1 - gamma, gamma]
     c = [gamma, 1]
     cfl_coeff = CFL_UNCONDITIONALLY_STABLE
 
 
 class DIRK23(AbstractRKScheme, DIRKGeneric):
     r"""2-stage, 3rd order Diagonally Implicit Runge-Kutta method.
-class DIRK23(AbstractRKScheme, DIRKGeneric):
-    r"""2-stage, 3rd order Diagonally Implicit Runge-Kutta method.
 
     This method has the Butcher tableau
 
-    $$
     $$
         \begin{array}{c|cc}
           \gamma &    \gamma &       0 \\
@@ -972,9 +849,7 @@ class DIRK23(AbstractRKScheme, DIRKGeneric):
                   &        1/2 &     1/2
         \end{array}
     $$
-    $$
 
-    with $\gamma = (3 + \sqrt{3})/6$.
     with $\gamma = (3 + \sqrt{3})/6$.
 
     From DIRK(2,3,3) IMEX scheme in Ascher et al. (1997)
@@ -986,17 +861,12 @@ class DIRK23(AbstractRKScheme, DIRKGeneric):
 
     gamma = (3 + np.sqrt(3)) / 6
     a = [[gamma, 0], [1 - 2 * gamma, gamma]]
-
-    gamma = (3 + np.sqrt(3)) / 6
-    a = [[gamma, 0], [1 - 2 * gamma, gamma]]
     b = [0.5, 0.5]
     c = [gamma, 1 - gamma]
     c = [gamma, 1 - gamma]
     cfl_coeff = CFL_UNCONDITIONALLY_STABLE
 
 
-class DIRK33(AbstractRKScheme, DIRKGeneric):
-    """3-stage, 3rd order, L-stable Diagonally Implicit Runge-Kutta method.
 class DIRK33(AbstractRKScheme, DIRKGeneric):
     """3-stage, 3rd order, L-stable Diagonally Implicit Runge-Kutta method.
 
@@ -1007,22 +877,15 @@ class DIRK33(AbstractRKScheme, DIRKGeneric):
     Mathematics, 25:151-167. http://dx.doi.org/10.1137/0732037
     """
 
-
     gamma = 0.4358665215
-    b1 = -3.0 / 2.0 * gamma**2 + 4 * gamma - 1.0 / 4.0
-    b2 = 3.0 / 2.0 * gamma**2 - 5 * gamma + 5.0 / 4.0
-    a = [[gamma, 0, 0], [(1 - gamma) / 2, gamma, 0], [b1, b2, gamma]]
     b1 = -3.0 / 2.0 * gamma**2 + 4 * gamma - 1.0 / 4.0
     b2 = 3.0 / 2.0 * gamma**2 - 5 * gamma + 5.0 / 4.0
     a = [[gamma, 0, 0], [(1 - gamma) / 2, gamma, 0], [b1, b2, gamma]]
     b = [b1, b2, gamma]
     c = [gamma, (1 + gamma) / 2, 1]
-    c = [gamma, (1 + gamma) / 2, 1]
     cfl_coeff = CFL_UNCONDITIONALLY_STABLE
 
 
-class DIRK43(AbstractRKScheme, DIRKGeneric):
-    """4-stage, 3rd order, L-stable Diagonally Implicit Runge-Kutta method.
 class DIRK43(AbstractRKScheme, DIRKGeneric):
     """4-stage, 3rd order, L-stable Diagonally Implicit Runge-Kutta method.
 
@@ -1041,20 +904,9 @@ class DIRK43(AbstractRKScheme, DIRKGeneric):
     ]
     b = [3.0 / 2.0, -3.0 / 2.0, 0.5, 0.5]
     c = [0.5, 2.0 / 3.0, 0.5, 1.0]
-
-    a = [
-        [0.5, 0, 0, 0],
-        [1.0 / 6.0, 0.5, 0, 0],
-        [-0.5, 0.5, 0.5, 0],
-        [3.0 / 2.0, -3.0 / 2.0, 0.5, 0.5],
-    ]
-    b = [3.0 / 2.0, -3.0 / 2.0, 0.5, 0.5]
-    c = [0.5, 2.0 / 3.0, 0.5, 1.0]
     cfl_coeff = CFL_UNCONDITIONALLY_STABLE
 
 
-class DIRKLSPUM2(AbstractRKScheme, DIRKGeneric):
-    """DIRKLSPUM2, 3-stage, 2nd order, L-stable Diagonally Implicit Runge-Kutta method.
 class DIRKLSPUM2(AbstractRKScheme, DIRKGeneric):
     """DIRKLSPUM2, 3-stage, 2nd order, L-stable Diagonally Implicit Runge-Kutta method.
 
@@ -1072,19 +924,9 @@ class DIRKLSPUM2(AbstractRKScheme, DIRKGeneric):
     ]
     b = [24.0 / 55.0, 1.0 / 5.0, 4.0 / 11.0]
     c = [2.0 / 11.0, 289.0 / 462.0, 751.0 / 924.0]
-
-    a = [
-        [2.0 / 11.0, 0, 0],
-        [205.0 / 462.0, 2.0 / 11.0, 0],
-        [2033.0 / 4620.0, 21.0 / 110.0, 2.0 / 11.0],
-    ]
-    b = [24.0 / 55.0, 1.0 / 5.0, 4.0 / 11.0]
-    c = [2.0 / 11.0, 289.0 / 462.0, 751.0 / 924.0]
     cfl_coeff = 4.34  # NOTE for linear problems, nonlin => 3.82
 
 
-class DIRKLPUM2(AbstractRKScheme, DIRKGeneric):
-    """DIRKLPUM2, 3-stage, 2nd order, L-stable Diagonally Implicit Runge-Kutta method.
 class DIRKLPUM2(AbstractRKScheme, DIRKGeneric):
     """DIRKLPUM2, 3-stage, 2nd order, L-stable Diagonally Implicit Runge-Kutta method.
 
@@ -1103,36 +945,19 @@ class DIRKLPUM2(AbstractRKScheme, DIRKGeneric):
     ]
     b = [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]
     c = [2.0 / 11.0, 69.0 / 154.0, 67.0 / 77.0]
-
-    a = [
-        [2.0 / 11.0, 0, 0],
-        [41.0 / 154.0, 2.0 / 11.0, 0],
-        [289.0 / 847.0, 42.0 / 121.0, 2.0 / 11.0],
-    ]
-    b = [1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]
-    c = [2.0 / 11.0, 69.0 / 154.0, 67.0 / 77.0]
     cfl_coeff = 4.34  # NOTE for linear problems, nonlin => 3.09
 
 
 class GaussLegendre(CRKGeneric):
     """Direct access to Irksome's GaussLegendre scheme."""
-class GaussLegendre(CRKGeneric):
-    """Direct access to Irksome's GaussLegendre scheme."""
 
-    butcher_tableau = GaussLegendre
-    tableau_parameter = 2
     butcher_tableau = GaussLegendre
     tableau_parameter = 2
 
 
 class LobattoIIIA(CRKGeneric):
     """Direct access to Irksome's LobattoIIIA scheme."""
-class LobattoIIIA(CRKGeneric):
-    """Direct access to Irksome's LobattoIIIA scheme."""
 
-    butcher_tableau = LobattoIIIA
-    tableau_parameter = 2
-    bc_type = "ODE"
     butcher_tableau = LobattoIIIA
     tableau_parameter = 2
     bc_type = "ODE"
@@ -1140,11 +965,7 @@ class LobattoIIIA(CRKGeneric):
 
 class RadauIIA(CRKGeneric):
     """Direct access to Irksome's RadauIIA scheme."""
-class RadauIIA(CRKGeneric):
-    """Direct access to Irksome's RadauIIA scheme."""
 
-    butcher_tableau = RadauIIA
-    tableau_parameter = 3
     butcher_tableau = RadauIIA
     tableau_parameter = 3
 
