@@ -87,14 +87,14 @@ def test_stokes_symmetry(approximation, mesh, solution_space):
 
     if approximation.compressible:
         # only the velocity block will be symmetric
-        M = fd.assemble(fd.derivative(solver.F, z), mat_type='nest')
+        M = fd.assemble(fd.derivative(solver.residual(), z), mat_type="nest")
         # the velocity block is assembled as type 'baij' for which .isSymmetric()
         # appears to not work (always returns False); so convert to type 'aij'
         M00 = M.petscmat.getNestSubMatrix(0, 0).convert('aij')
         assert M00.isSymmetric(1e-13)
     else:
         # test symmetry of entire matrix
-        M = fd.assemble(fd.derivative(solver.F, z), mat_type='aij')
+        M = fd.assemble(fd.derivative(solver.residual(), z), mat_type="aij")
         assert M.petscmat.isSymmetric(1e-13)
 
 
@@ -134,5 +134,5 @@ def test_internal_variable_symmetry(mesh):
         bcs[bids[3]] = {'u': zero_vec}
     solver = gadopt.InternalVariableSolver(u, approximation, dt=1, internal_variables=m, bcs=bcs)
 
-    M = fd.assemble(fd.derivative(solver.F, u), mat_type='aij')
+    M = fd.assemble(fd.derivative(solver.residual(), u), mat_type="aij")
     assert M.petscmat.isSymmetric(1e-13)

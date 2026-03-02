@@ -1,7 +1,7 @@
 """This module provides several classes to perform integration of time-dependent
 equations via Irksome. Users choose if they require an explicit or diagonally implicit
 time integrator, and they instantiate one of the implemented algorithm classes, for
-example, `ERKEuler`, by providing relevant parameters defined in `RKGeneric`. Then, they
+example, `ForwardEuler`, by providing relevant parameters defined in `RKGeneric`. Then, they
 call the `advance` method to request a solver update.
 """
 
@@ -152,7 +152,7 @@ class IrksomeIntegrator:
         # The mass term provided to `Equation` must employ the time derivative operator
         # `Dt`, allowing an equation-specific implementation of the time derivative
         # term.
-        if isinstance(equation, fd.ufl.form.Form):
+        if isinstance(equation, fd.Form):
             F = equation
         elif isinstance(equation, list):
             F = sum(eq.residual(sol) for eq, sol in zip(equation, fd.split(solution)))
@@ -167,6 +167,7 @@ class IrksomeIntegrator:
             "stage_type": stage_type,
             "bcs": strong_bcs,
             "solver_parameters": solver_parameters,
+            "options_prefix": self.name,
         }
         # Add bc_type only for stage formulations that support it
         if stage_type == "deriv":
@@ -403,7 +404,7 @@ class AbstractRKScheme(ABC):
         """
 
 
-class ERKEuler(AbstractRKScheme, ERKGeneric):
+class ForwardEuler(AbstractRKScheme, ERKGeneric):
     """Forward Euler method"""
 
     a = [[0]]
@@ -448,7 +449,7 @@ class ERKLPUM2(AbstractRKScheme, ERKGeneric):
     cfl_coeff = 2.0
 
 
-class ERKMidpoint(AbstractRKScheme, ERKGeneric):
+class Midpoint(AbstractRKScheme, ERKGeneric):
     a = [[0.0, 0.0], [0.5, 0.0]]
     b = [0.0, 1.0]
     c = [0.0, 0.5]
@@ -530,10 +531,6 @@ class eSSPRKs5p3(eSSPRK):
         [0.35866028, 0.35866028],
         [0.23456423, 0.23456423, 0.24819211],
         [0.15340527, 0.15340527, 0.16231792, 0.24819211],
-        [0.37949799],
-        [0.35866028, 0.35866028],
-        [0.23456423, 0.23456423, 0.24819211],
-        [0.15340527, 0.15340527, 0.16231792, 0.24819211],
     ]
     b = [0.20992362, 0.1975535, 0.1217419, 0.18614938, 0.28463159]
     c = [0.0, 0.37949799, 0.71732056, 0.71732057, 0.71732057]
@@ -553,11 +550,6 @@ class eSSPRKs6p3(eSSPRK):
         [0.23301578, 0.23301578, 0.23301578],
         [0.16684082, 0.16532461, 0.16532461, 0.20165449],
         [0.21178186, 0.102324, 0.10202706, 0.12444738, 0.17540162],
-        [0.28422072],
-        [0.28422072, 0.28422072],
-        [0.23301578, 0.23301578, 0.23301578],
-        [0.16684082, 0.16532461, 0.16532461, 0.20165449],
-        [0.21178186, 0.102324, 0.10202706, 0.12444738, 0.17540162],
     ]
     b = [0.21181784, 0.10241434, 0.10198818, 0.12438557, 0.17531451, 0.28407956]
     c = [0.0, 0.28422072, 0.56844144, 0.69904734, 0.69914453, 0.71598192]
@@ -572,12 +564,6 @@ class eSSPRKs7p3(eSSPRK):
     """
 
     a = [
-        [0.23333473],
-        [0.23333473, 0.23333473],
-        [0.23144338, 0.23144338, 0.23144338],
-        [0.17322863, 0.17322863, 0.17322863, 0.17464425],
-        [0.13071968, 0.12941249, 0.12941249, 0.13047004, 0.17431545],
-        [0.16655731, 0.16570664, 0.08421603, 0.08490424, 0.11343693, 0.15184412],
         [0.23333473],
         [0.23333473, 0.23333473],
         [0.23144338, 0.23144338, 0.23144338],
@@ -606,12 +592,6 @@ class eSSPRKs8p3(eSSPRK):
     """
 
     a = [
-        [0.19580402],
-        [0.19580402, 0.19580402],
-        [0.19580402, 0.19580402, 0.19580402],
-        [0.15369244, 0.15369244, 0.15369244, 0.15369244],
-        [0.11656615, 0.11656615, 0.11656615, 0.11656615, 0.14850516],
-        [0.12960593, 0.09738344, 0.09738344, 0.09738344, 0.12406641, 0.16358153],
         [0.19580402],
         [0.19580402, 0.19580402],
         [0.19580402, 0.19580402, 0.19580402],
@@ -666,13 +646,6 @@ class eSSPRKs9p3(eSSPRK):
         [0.13333333, 0.13333333, 0.13333333, 0.13333333, 0.13333333],
         [0.14166667, 0.1, 0.1, 0.1, 0.1, 0.125],
         [0.15, 0.12222222, 0.06666667, 0.06666667, 0.06666667, 0.08333333, 0.11111111],
-        [0.16666667],
-        [0.16666667, 0.16666667],
-        [0.16666667, 0.16666667, 0.16666667],
-        [0.16666667, 0.16666667, 0.16666667, 0.16666667],
-        [0.13333333, 0.13333333, 0.13333333, 0.13333333, 0.13333333],
-        [0.14166667, 0.1, 0.1, 0.1, 0.1, 0.125],
-        [0.15, 0.12222222, 0.06666667, 0.06666667, 0.06666667, 0.08333333, 0.11111111],
         [
             0.15,
             0.12222222,
@@ -717,12 +690,6 @@ class eSSPRKs10p3(eSSPRK):
     """
 
     a = [
-        [0.14737756],
-        [0.14737756, 0.14737756],
-        [0.14737756, 0.14737756, 0.14737756],
-        [0.14737756, 0.14737756, 0.14737756, 0.14737756],
-        [0.11790205, 0.11790205, 0.11790205, 0.11790205, 0.11790205],
-        [0.10906732, 0.10906703, 0.10906703, 0.10906703, 0.10906703, 0.13633378],
         [0.14737756],
         [0.14737756, 0.14737756],
         [0.14737756, 0.14737756, 0.14737756],
@@ -997,10 +964,10 @@ class Alexander(DIRKGeneric):
 
 
 rk_schemes_gadopt = [
-    ERKEuler,
+    ForwardEuler,
     ERKLSPUM2,
     ERKLPUM2,
-    ERKMidpoint,
+    Midpoint,
     SSPRK33,
     eSSPRKs3p3,
     eSSPRKs4p3,

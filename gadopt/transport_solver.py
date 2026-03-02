@@ -102,7 +102,6 @@ class GenericTransportBase(SolverConfigurationMixin, abc.ABC):
         "advection": scalar_eq.advection_term,
         "diffusion": scalar_eq.diffusion_term,
         "mass": scalar_eq.mass_term,
-        "mass": scalar_eq.mass_term,
         "sink": scalar_eq.sink_term,
         "source": scalar_eq.source_term,
     }
@@ -120,7 +119,6 @@ class GenericTransportBase(SolverConfigurationMixin, abc.ABC):
         bcs: dict[int, dict[str, Number]] = {},
         solver_parameters: ConfigType | str | None = None,
         solver_parameters_extra: ConfigType | None = None,
-        timestepper_kwargs: dict[str, Any] | None = None,
         timestepper_kwargs: dict[str, Any] | None = None,
         su_advection: bool = False,
     ) -> None:
@@ -400,7 +398,6 @@ class EnergySolver(GenericTransportBase):
         self.eq_attrs |= {
             "advective_velocity_scaling": rho_cp,
             "diffusivity": self.approximation.kappa(),
-            "mass_scaling": rho_cp,
             "mass_scaling": rho_cp,
             "reference_for_diffusion": self.approximation.Tbar,
             "sink_coeff": self.approximation.linearized_energy_sink(self.u),

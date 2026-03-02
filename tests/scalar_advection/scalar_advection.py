@@ -85,7 +85,7 @@ bcs = {1: bc_in, 2: bc_in, 3: bc_in, 4: bc_in}
 eq_attrs = {"u": u}
 terms = ["advection", "mass"]
 adv_solver = GenericTransportSolver(
-    ["advection", "mass"], q, dt, DIRK33, eq_attrs=eq_attrs, bcs=bcs, su_advection=True
+    terms, q, time, time_step, DIRK33, eq_attrs=eq_attrs, bcs=bcs, su_advection=True
 )
 
 # Get nubar (additional SU diffusion) for plotting

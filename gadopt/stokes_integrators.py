@@ -17,7 +17,7 @@ from typing import Any
 from warnings import warn
 
 import firedrake as fd
-from ufl.core.expr import Expr
+from ufl.core.operator import Operator
 
 from .approximations import BaseApproximation, BaseGIAApproximation
 from .equations import Equation
@@ -305,7 +305,7 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
 
     def set_free_surface_boundary(
         self, params_fs: dict[str, int | bool], bc_id: int | str
-    ) -> Expr:
+    ) -> Operator:
         """Sets the given boundary as a free surface.
 
         This method calculates the normal stress at the free surface boundary. In the
@@ -331,9 +331,7 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
         """
 
     def set_solver_options(
-        self,
-        solver_preset: ConfigType | str | None,
-        solver_extras: ConfigType | None,
+        self, solver_preset: ConfigType | str | None, solver_extras: ConfigType | None
     ) -> None:
         """Sets PETSc solver options."""
         # Application context for the inverse mass matrix preconditioner
@@ -403,9 +401,7 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
                 **self.timestepper_kwargs,
             )
         else:
-            F = sum(
-                eq.residual(sol) for eq, sol in zip(self.equations, self.solution_split)
-            )
+            F = self.residual()
             if self.additional_forcing_term is not None:
                 F += self.additional_forcing_term
 
@@ -440,6 +436,11 @@ class StokesSolverBase(SolverConfigurationMixin, abc.ABC):
                     appctx=self.appctx,
                     options_prefix=self.name,
                 )
+
+    def residual(self) -> Operator:
+        return sum(
+            eq.residual(sol) for eq, sol in zip(self.equations, self.solution_split)
+        )
 
     def solve(self) -> None:
         """Solves the system."""
@@ -509,7 +510,7 @@ class StokesSolver(StokesSolverBase):
 
     def set_free_surface_boundary(
         self, params_fs: dict[str, int | bool], bc_id: int | str
-    ) -> Expr:
+    ) -> Operator:
         # Set internal degrees of freedom to zero to prevent singular matrix
         self.strong_bcs.append(
             InteriorBC(self.solution_space[self.eta_ind], 0.0, bc_id)
@@ -553,8 +554,7 @@ class StokesSolver(StokesSolverBase):
             )
 
         for bc_id, (eta_ind, buoyancy) in self.free_surface_map.items():
-            mass_term, surface_velocity_term = free_surface_terms
-            eq_attrs = {"boundary_id": bc_id, "buoyancy_scale": buoyancy}
+            eq_attrs = {"boundary_id": bc_id, "buoyancy_scale": buoyancy, "u": u}
 
             self.equations.append(
                 Equation(
@@ -698,7 +698,7 @@ class ViscoelasticStokesSolver(StokesSolverBase):
 
     def set_free_surface_boundary(
         self, params_fs: dict[str, int | bool], bc_id: int | str
-    ) -> Expr:
+    ) -> Operator:
         # First, make the displacement term implicit by incorporating the unknown
         # `incremental displacement' (u) that we are solving for. Then, calculate the
         # free surface stress term. This is also referred to as the Hydrostatic
@@ -851,7 +851,7 @@ class InternalVariableSolver(StokesSolverBase):
 
     def set_free_surface_boundary(
         self, params_fs: dict[str, int | bool], bc_id: int
-    ) -> Expr:
+    ) -> Operator:
         normal_stress = params_fs.get("normal_stress", 0.0)
         # Add free surface stress term. This is also referred to as the Hydrostatic
         # Prestress advection term in the GIA literature.
@@ -864,7 +864,9 @@ class InternalVariableSolver(StokesSolverBase):
 
         return combined_normal_stress
 
-    def update_m(self, m: fd.Function, maxwell_time: fd.Function | Expr) -> Expr:
+    def update_m(
+        self, m: fd.Function, maxwell_time: fd.Function | Operator
+    ) -> Operator:
         """Calculates updated internal variable using Backward Euler formula
 
         Args:

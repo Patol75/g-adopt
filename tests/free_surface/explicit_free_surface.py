@@ -1,6 +1,4 @@
-from irksome import Dt
 from test_free_surface import run_benchmark
-from ufl.indexed import Indexed
 
 from gadopt import *
 from gadopt.equations import Equation
@@ -166,10 +164,7 @@ class ExplicitFreeSurfaceModel:
         # Setup remaining free surface parameters needed for explicit coupling
         # Initialise the separate free surface equation for explicit coupling
         eta_eq = Equation(
-            TestFunction(self.W),
-            self.W,
-            [mass_term, surface_velocity_term],
-            eq_attrs=eq_attrs,
+            TestFunction(self.W), self.W, free_surface_terms, eq_attrs=eq_attrs
         )
         # Apply strong homogenous boundary to interior DOFs to prevent a singular matrix when only integrating the free surface equation over the top surface.
         eta_strong_bcs = [InteriorBC(self.W, 0.0, self.boundary.top)]

@@ -10,13 +10,14 @@ $$
 
 import firedrake as fd
 from irksome import Dt
+from ufl.indexed import Indexed
 
 from .equations import Equation
 from .utility import vertical_component
 
 
 def surface_velocity_term(
-    eq: Equation, trial: fd.Argument | fd.ufl.indexed.Indexed | fd.Function
+    eq: Equation, trial: fd.Argument | Indexed | fd.Function
 ) -> fd.Form:
     r"""Free Surface term: u \dot n"""
     return -eq.buoyancy_scale * eq.test * fd.dot(eq.u, eq.n) * eq.ds(eq.boundary_id)
